@@ -7,7 +7,10 @@
 // the message-thread getters, destruct (must join a never-started worker without hanging). NO
 // network by default — pass --live to also run one real end-to-end check against GitHub (dev-box
 // only; CI stays offline and deterministic).
+#include <felitronics/appkit/AudioSettingsPanel.h>
 #include <felitronics/appkit/Brand.h>
+#include <felitronics/appkit/NotifyPing.h>
+#include <felitronics/appkit/SettingsStore.h>
 #include <felitronics/appkit/TextPrompt.h>
 #include <felitronics/appkit/UpdateChecker.h>
 
