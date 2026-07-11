@@ -56,10 +56,14 @@ int main (int argc, char** argv)
     // Brand.h / TextPrompt.h are GUI headers — this tier only gates that they COMPILE clean and
     // link under the consumer flag set (no window/system usage in a headless CI runner).
     {
-        auto* mark = &felitronics::appkit::brand::drawOrbit;   (void) mark;
-        auto* prompt = &felitronics::appkit::textPrompt;       (void) prompt;
+        auto* mark = &felitronics::appkit::brand::drawOrbit;       (void) mark;
+        auto* rings = &felitronics::appkit::brand::drawOrbitRings; (void) rings;
+        auto* width = &felitronics::appkit::brand::textWidth;      (void) width;
+        auto* prompt = &felitronics::appkit::textPrompt;           (void) prompt;
         ok (felitronics::appkit::brand::violet != felitronics::appkit::brand::orange,
             "brand palette is distinct");
+        ok (felitronics::appkit::brand::wordmarkFont (nullptr, 14.0f).getHeight() > 13.0f,
+            "wordmarkFont: bold system fallback when the typeface is null");
     }
 
     // LevelMeter: a plain Component — safe to construct and feed headless (no peer, so repaint()
