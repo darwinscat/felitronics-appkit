@@ -13,10 +13,13 @@
 #include <felitronics/appkit/Download.h>
 #include <felitronics/appkit/LevelMeter.h>
 #include <felitronics/appkit/IconButton.h>
+#include <felitronics/appkit/CallOut.h>
 #include <felitronics/appkit/NotifyPing.h>
+#include <felitronics/appkit/PerfBadge.h>
 #include <felitronics/appkit/SettingsStore.h>
 #include <felitronics/appkit/TextPrompt.h>
 #include <felitronics/appkit/UpdateChecker.h>
+#include <felitronics/appkit/VersionBadge.h>
 
 #include <cstdio>
 #include <cstring>
@@ -123,9 +126,39 @@ int main (int argc, char** argv)
         tmp.deleteRecursively();
     }
 
+    // VersionBadge / PerfBadge / CallOut — GUI headers: compile-gated under the consumer flag set
+    // and smoke-constructed headless (components are never added to the desktop, no popups shown).
+    {
+        ChkAdapter c;
+        felitronics::appkit::VersionBadge badge (c,
+            { .productName   = "Appkit Gate",
+              .productUrl    = "https://example.invalid/appkit-gate",
+              .gitHash       = "deadbee",
+              .buildNumber   = 20260712000000LL,
+              .buildCount    = 7,
+              .gitDirty      = true,
+              .os = "macOS", .arch = "arm64", .builder = "gate",
+              .coreVersion   = "v0.1.0 (local)",
+              .coreOwnerRepo = "darwinscat/felitronics-core" },
+            "Standalone");
+        ok (badge.getTooltip().startsWith ("Appkit Gate v") && badge.getTooltip().contains ("(Standalone)"),
+            "version badge tooltip derives from Config + checker");
+
+        felitronics::appkit::PerfBadge perf ({ .rows = { { "Stage A", felitronics::appkit::brand::violet },
+                                                         { "Stage B", felitronics::appkit::brand::orange } } });
+        felitronics::appkit::PerfBadge::Stats st;
+        st.latencySamples = 64; st.latencyMs = 1.33f; st.total = 42.0f; st.stages = { 12.0f, 30.0f };
+        perf.setStats (st);
+        ok (perf.getStats().latencySamples == 64 && perf.getStats().stages.size() == 2,
+            "perf badge stats snapshot roundtrips");
+
+        auto* callout = &felitronics::appkit::launchCallOut;   (void) callout;
+    }
+
     {
         ChkAdapter c;
         ok (c.releasesPageUrl() == "https://github.com/darwinscat/felitronics-appkit/releases/latest", "releasesPageUrl derives from the slug");
+        ok (c.ownerRepo() == "darwinscat/felitronics-appkit", "ownerRepo echoes Config (badge link base)");
         ok (c.currentVersion() == "v0.1.0-7-gdeadbee", "currentVersion echoes Config");
         ok (! c.updateAvailable(), "null settings -> no stored badge");
         ok (c.storedLatest().isEmpty(), "null settings -> empty storedLatest");

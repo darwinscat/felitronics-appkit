@@ -17,6 +17,9 @@ Header-only. The CMake target adds an include path and nothing else — **the co
 | `felitronics/appkit/Brand.h` | `juce_gui_basics` | The Darwin's Cat identity, consolidated from the diverged orbitcab/orbit-capture copies: palette (`brand::violet/lilac/orange`), the orbit "target" mark (`drawOrbit`), the fixed 8-slot palette, the large-glyph `GearButton`. |
 | `felitronics/appkit/TextPrompt.h` | `juce_gui_basics` | One-line modal text prompt (OK/Enter · Cancel/Esc), brand-styled. |
 | `felitronics/appkit/LevelMeter.h` | `juce_audio_basics`, `juce_gui_basics` | Thin vertical dBFS peak meter (from OrbitCab): instant-attack/smooth-release ballistics + peak-hold, zoomable range (`setRange`), scale ticks/labels. Fed on the message thread — a GUI timer (~30 Hz) reads the processor's atomic per-block peak and calls `setLevel`. |
+| `felitronics/appkit/CallOut.h` | `juce_gui_basics` | `launchCallOut`: a CallOutBox parented to the editor, not the desktop — a desktop call-out orphans on screen when the plugin window closes. |
+| `felitronics/appkit/VersionBadge.h` | `juce_gui_basics` | The clickable "vX.Y.Z / format" corner badge + update popover (brand mark, full build stamp with GitHub links, opt-in "Check for updates"). Fronts the product's `UpdateChecker` adapter; identity/build-stamp/dependency-line in its `Config`. |
+| `felitronics/appkit/PerfBadge.h` | `juce_gui_basics` | The clickable "latency · CPU%" badge + live per-stage DSP-load popover; the product's stage rows (label + colour) are `Config` data, stats pushed as snapshots. |
 
 Brand *assets* (Michroma font + OFL license, `catlogo.svg`) live in [`assets/`](assets/) — embed them
 from your app's CMake: `juce_add_binary_data(MyAssets SOURCES ${felitronics_appkit_SOURCE_DIR}/assets/Michroma-Regular.ttf …)`
