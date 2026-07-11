@@ -1,0 +1,32 @@
+# felitronics-appkit CI — the JUCE-free tier everywhere; the JUCE consumer-compile gate on macOS
+# (native URL backend, no system deps) so UpdateChecker.h is COMPILED on every push even though no
+# product build runs here.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    name: ${{ matrix.os }}${{ matrix.juce == 'ON' && ' + JUCE gate' || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            juce: "OFF"
+          - os: windows-latest
+            juce: "OFF"
+          - os: macos-latest
+            juce: "ON"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DFELITRONICS_APPKIT_TESTS_WITH_JUCE=${{ matrix.juce }}
+      - name: Build
+        run: cmake --build build --config Release -j 4
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure

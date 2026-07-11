@@ -1,0 +1,9 @@
+# agent notes + internal planning docs — never committed (family convention)
+CLAUDE.md
+.claude/
+.private/
+
+build*/
+.DS_Store
+compile_commands.json
+.cache/
