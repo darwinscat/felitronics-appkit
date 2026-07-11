@@ -132,12 +132,19 @@ private:
     }
 
     //--- the CallOutBox content ----------------------------------------------
+    // The callout is a child of the TOP-LEVEL window (see CallOut.h), so it can OUTLIVE the badge —
+    // and in a consumer that owns badge + checker together (a closable settings subview, say), the
+    // checker dies with them. The panel therefore never stores a checker reference: everything it
+    // needs to DRAW is copied at construction (the badge is alive then — it launched us), and the
+    // one post-construction checker call (checkNow) reaches it through the live badge or no-ops.
     struct Panel final : public juce::Component
     {
-        Panel (UpdateChecker& uc, VersionBadge& ownerBadge, Config cfg,
+        Panel (VersionBadge& ownerBadge, Config cfg,
                juce::String pluginFormat, juce::Typeface::Ptr brandTf)
-            : checker (uc), owner (&ownerBadge), config (std::move (cfg)), brandTypeface (std::move (brandTf))
+            : owner (&ownerBadge), config (std::move (cfg)),
+              releasesPage (ownerBadge.checker.releasesPageUrl()), brandTypeface (std::move (brandTf))
         {
+            UpdateChecker& chk = ownerBadge.checker;   // construction-time only — never stored
             const juce::String mono = juce::Font::getDefaultMonospacedFontName();
             const juce::String mid  = juce::String::fromUTF8 (" \xc2\xb7 ");   // " · "
             const bool hasCore = config.coreVersion.isNotEmpty();
@@ -159,8 +166,8 @@ private:
                 b.changeWidthToFitText();
                 addAndMakeVisible (b);
             };
-            const juce::String repoBase = "https://github.com/" + checker.ownerRepo();
-            const juce::String ver = "v" + checker.currentVersion();
+            const juce::String repoBase = "https://github.com/" + chk.ownerRepo();
+            const juce::String ver = "v" + chk.currentVersion();
             ghLink (verLink,    ver,                                 repoBase + "/releases/tag/" + ver);
             ghLink (commitLink, juce::String ("g") + config.gitHash, repoBase + "/commit/" + config.gitHash);
             if (hasCore)
@@ -211,8 +218,8 @@ private:
             addAndMakeVisible (note);
 
             // If an update is already known from a previous check, show it up front.
-            if (checker.updateAvailable())
-                showUpdate (checker.storedLatest(), juce::URL (checker.releasesPageUrl()));
+            if (chk.updateAvailable())
+                showUpdate (chk.storedLatest(), juce::URL (releasesPage));
 
             setSize (300, hasCore ? 248 : 232);   // one 16 px row less without the dependency line
         }
@@ -271,13 +278,23 @@ private:
 
         void runCheck()
         {
+            // The checker is reachable ONLY through a live badge (see the struct comment): if the
+            // badge — and with it, possibly, the checker — is gone, the button goes dead instead of
+            // calling through a dangling reference.
+            auto* live = owner.getComponent();
+            if (live == nullptr)
+            {
+                check.setEnabled (false);
+                return;
+            }
+
             check.setEnabled (false);
             result.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
             result.setText (juce::String::fromUTF8 ("Checking\xe2\x80\xa6"), juce::dontSendNotification);
             download.setVisible (false);
 
             juce::Component::SafePointer<Panel> safe (this);
-            checker.checkNow ([safe] (UpdateChecker::Result res)
+            live->checker.checkNow ([safe] (UpdateChecker::Result res)
             {
                 if (auto* self = safe.getComponent())
                     self->onResult (res);
@@ -296,7 +313,7 @@ private:
                 return;
             }
             if (res.outdated)
-                showUpdate (res.latest, juce::URL (res.url.isNotEmpty() ? res.url : checker.releasesPageUrl()));
+                showUpdate (res.latest, juce::URL (res.url.isNotEmpty() ? res.url : releasesPage));
             else
             {
                 result.setColour (juce::Label::textColourId, juce::Colour (0xff7be29a));   // green
@@ -312,9 +329,9 @@ private:
             download.setVisible (true);
         }
 
-        UpdateChecker& checker;
-        juce::Component::SafePointer<VersionBadge> owner;   // the badge may outlive-die before an async check returns
+        juce::Component::SafePointer<VersionBadge> owner;   // the badge may die under the open popup — ALSO the only route to the checker
         const Config          config;                       // OWN copy — safe if the badge dies while the popup is open
+        const juce::String    releasesPage;                 // checker.releasesPageUrl(), copied likewise (immutable derivation of the slug)
         juce::Typeface::Ptr   brandTypeface;                // the brand face for the title (from the editor; bold fallback if null)
         juce::Rectangle<int>  titleArea;                    // where paint() draws [mark] <productName>
         juce::Label           result, note, tailA, tailB, line3, coreLead, coreTail;
@@ -324,7 +341,7 @@ private:
 
     void showPopup()
     {
-        launchCallOut (*this, std::make_unique<Panel> (checker, *this, config, format, brandTypeface));
+        launchCallOut (*this, std::make_unique<Panel> (*this, config, format, brandTypeface));
     }
 
     UpdateChecker&      checker;
