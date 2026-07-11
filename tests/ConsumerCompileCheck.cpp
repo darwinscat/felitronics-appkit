@@ -9,6 +9,7 @@
 // only; CI stays offline and deterministic).
 #include <felitronics/appkit/AudioSettingsPanel.h>
 #include <felitronics/appkit/Brand.h>
+#include <felitronics/appkit/BrandHeader.h>
 #include <felitronics/appkit/Download.h>
 #include <felitronics/appkit/NotifyPing.h>
 #include <felitronics/appkit/SettingsStore.h>
