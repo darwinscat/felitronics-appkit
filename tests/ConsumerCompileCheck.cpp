@@ -11,6 +11,7 @@
 #include <felitronics/appkit/Brand.h>
 #include <felitronics/appkit/BrandHeader.h>
 #include <felitronics/appkit/Download.h>
+#include <felitronics/appkit/LevelMeter.h>
 #include <felitronics/appkit/NotifyPing.h>
 #include <felitronics/appkit/SettingsStore.h>
 #include <felitronics/appkit/TextPrompt.h>
@@ -57,6 +58,16 @@ int main (int argc, char** argv)
         auto* prompt = &felitronics::appkit::textPrompt;       (void) prompt;
         ok (felitronics::appkit::brand::violet != felitronics::appkit::brand::orange,
             "brand palette is distinct");
+    }
+
+    // LevelMeter: a plain Component — safe to construct and feed headless (no peer, so repaint()
+    // is inert and paint() never runs). Exercises the ballistics/setRange paths under real JUCE.
+    {
+        felitronics::appkit::LevelMeter meter;
+        meter.setSize (14, 120);
+        meter.setRange (-24.0f, 6.0f);
+        for (int i = 0; i < 30; ++i) meter.setLevel (i < 3 ? 0.9f : 0.0f);   // attack, then release + hold decay
+        ok (meter.getWidth() == 14 && meter.getHeight() == 120, "LevelMeter constructs and accepts levels headless");
     }
 
     // SettingsStore: functional smoke in an isolated temp dir (never the developer's real
