@@ -7,6 +7,8 @@
 // the message-thread getters, destruct (must join a never-started worker without hanging). NO
 // network by default — pass --live to also run one real end-to-end check against GitHub (dev-box
 // only; CI stays offline and deterministic).
+#include <felitronics/appkit/Brand.h>
+#include <felitronics/appkit/TextPrompt.h>
 #include <felitronics/appkit/UpdateChecker.h>
 
 #include <cstdio>
@@ -31,6 +33,15 @@ int main (int argc, char** argv)
     };
 
     juce::MessageManager::getInstance();   // the AsyncUpdater base wants a live MessageManager
+
+    // Brand.h / TextPrompt.h are GUI headers — this tier only gates that they COMPILE clean and
+    // link under the consumer flag set (no window/system usage in a headless CI runner).
+    {
+        auto* mark = &felitronics::appkit::brand::drawOrbit;   (void) mark;
+        auto* prompt = &felitronics::appkit::textPrompt;       (void) prompt;
+        ok (felitronics::appkit::brand::violet != felitronics::appkit::brand::orange,
+            "brand palette is distinct");
+    }
 
     {
         ChkAdapter c;

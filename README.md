@@ -14,6 +14,12 @@ Header-only. The CMake target adds an include path and nothing else — **the co
 |---|---|---|
 | `felitronics/appkit/UpdateCompare.h` | nothing (constexpr, JUCE-free) | The update-badge rule: numeric semver for clean release builds; a `git describe` dev stamp counts older than any release; hostile tags reject safely. |
 | `felitronics/appkit/UpdateChecker.h` | `juce_events`, `juce_data_structures` | The opt-in GitHub-release update check: user-click only (never on launch), owned worker thread joined on destruction, silent failure, badge persisted in the product's `PropertiesFile`. |
+| `felitronics/appkit/Brand.h` | `juce_gui_basics` | The Darwin's Cat identity, consolidated from the diverged orbitcab/orbit-capture copies: palette (`brand::violet/lilac/orange`), the orbit "target" mark (`drawOrbit`), the fixed 8-slot palette, the large-glyph `GearButton`. |
+| `felitronics/appkit/TextPrompt.h` | `juce_gui_basics` | One-line modal text prompt (OK/Enter · Cancel/Esc), brand-styled. |
+
+Brand *assets* (Michroma font + OFL license, `catlogo.svg`) live in [`assets/`](assets/) — embed them
+from your app's CMake: `juce_add_binary_data(MyAssets SOURCES ${felitronics_appkit_SOURCE_DIR}/assets/Michroma-Regular.ttf …)`
+(`felitronics_appkit_SOURCE_DIR` is set by `FetchContent_MakeAvailable`).
 
 Consumers subclass `UpdateChecker` as a thin adapter that bakes in their `Config` (repo slug,
 product name, version string, settings accessor, legacy settings keys).

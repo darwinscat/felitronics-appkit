@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(felitronics_appkit VERSION 0.1.0 LANGUAGES CXX)
+project(felitronics_appkit VERSION 0.1.0 LANGUAGES C CXX)   # C: juce_graphics compiles Sheenbidi (.c) in the JUCE test tier
 
 # ----------------------------------------------------------------------------
 # felitronics-appkit — APP-SIDE (non-DSP) JUCE infrastructure shared by the Darwin's Cat product
@@ -71,7 +71,7 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
     add_executable(appkit_consumer_compile_check tests/ConsumerCompileCheck.cpp)
     target_link_libraries(appkit_consumer_compile_check PRIVATE
         felitronics::appkit
-        juce::juce_events juce::juce_data_structures
+        juce::juce_events juce::juce_data_structures juce::juce_gui_basics
         juce::juce_recommended_warning_flags)
     target_compile_definitions(appkit_consumer_compile_check PRIVATE
         JUCE_STANDALONE_APPLICATION=1
