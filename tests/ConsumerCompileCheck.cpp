@@ -10,6 +10,7 @@
 #include <felitronics/appkit/AudioSettingsPanel.h>
 #include <felitronics/appkit/Brand.h>
 #include <felitronics/appkit/LevelMeter.h>
+#include <felitronics/appkit/IconButton.h>
 #include <felitronics/appkit/NotifyPing.h>
 #include <felitronics/appkit/SettingsStore.h>
 #include <felitronics/appkit/TextPrompt.h>
@@ -66,6 +67,11 @@ int main (int argc, char** argv)
         meter.setRange (-24.0f, 6.0f);
         for (int i = 0; i < 30; ++i) meter.setLevel (i < 3 ? 0.9f : 0.0f);   // attack, then release + hold decay
         ok (meter.getWidth() == 14 && meter.getHeight() == 120, "LevelMeter constructs and accepts levels headless");
+
+        const felitronics::appkit::IconButton icon (felitronics::appkit::IconButton::Kind::settings);
+        ok (icon.colour == juce::Colour (0xffc0c0c8) && icon.panelColour == juce::Colour (0xff1b1b1f)
+                && ! icon.framed,
+            "IconButton defaults pin OrbitCab's neutral/panel look");
     }
 
     // SettingsStore: functional smoke in an isolated temp dir (never the developer's real
