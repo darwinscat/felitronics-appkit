@@ -91,7 +91,7 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
     add_executable(appkit_consumer_compile_check tests/ConsumerCompileCheck.cpp)
     target_link_libraries(appkit_consumer_compile_check PRIVATE
         felitronics::appkit
-        juce::juce_events juce::juce_data_structures juce::juce_gui_basics juce::juce_audio_utils
+        juce::juce_events juce::juce_data_structures juce::juce_gui_basics juce::juce_audio_utils juce::juce_cryptography
         juce::juce_recommended_warning_flags)
     target_compile_definitions(appkit_consumer_compile_check PRIVATE
         JUCE_STANDALONE_APPLICATION=1
