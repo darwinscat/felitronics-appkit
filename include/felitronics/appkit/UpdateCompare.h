@@ -83,6 +83,9 @@ namespace felitronics::appkit::update
     // identified by `localDescribe`. See the file header for the dev-build rule.
     constexpr bool remoteIsNewer (std::string_view localDescribe, std::string_view remoteTag) noexcept
     {
+        if (! isCleanRelease (remoteTag))
+            return false;                                       // remote pre-release/exotic tags offer nothing
+
         const Semver r = parseSemver (remoteTag);
         if (r.major == 0 && r.minor == 0 && r.patch == 0)
             return false;                                       // no usable release tag → nothing to offer
