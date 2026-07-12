@@ -18,6 +18,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <thread>
 
 struct ChkAdapter : felitronics::appkit::UpdateChecker
 {
@@ -30,6 +31,16 @@ struct ChkAdapter : felitronics::appkit::UpdateChecker
 
 int main (int argc, char** argv)
 {
+    // Child mode for the CROSS-PROCESS lock smoke: hammer one key in the given store dir and
+    // verify own writes survive. Spawned by the parent below; exits 0 on success.
+    if (argc > 2 && std::strcmp (argv[1], "--settings-child") == 0)
+    {
+        felitronics::appkit::SettingsStore s ("Darwin's Cat", "AppkitGate", juce::File (argv[2]));
+        for (int i = 0; i < 100; ++i)
+            if (! s.set ("kc", i) || (int) s.get ("kc", -1) != i) return 1;
+        return 0;
+    }
+
     const bool live = argc > 1 && std::strcmp (argv[1], "--live") == 0;
     int failures = 0;
     auto ok = [&failures] (bool cond, const char* what)
@@ -46,6 +57,53 @@ int main (int argc, char** argv)
         auto* prompt = &felitronics::appkit::textPrompt;       (void) prompt;
         ok (felitronics::appkit::brand::violet != felitronics::appkit::brand::orange,
             "brand palette is distinct");
+    }
+
+    // SettingsStore: functional smoke in an isolated temp dir (never the developer's real
+    // app-data), incl. the cross-process-lock discipline pinned in-process: two threads doing
+    // read-modify-write set() on DIFFERENT keys through two store instances (same lock NAME) —
+    // without the InterProcessLock the stale-load RMW erases the other thread's key.
+    {
+        using felitronics::appkit::SettingsStore;
+        const auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                             .getChildFile ("appkit-gate-" + juce::String (juce::Random::getSystemRandom().nextInt (1 << 30)));
+        SettingsStore s ("Darwin's Cat", "AppkitGate", tmp);
+        ok (! s.file().existsAsFile(), "fresh store: no file yet");
+        ok (s.load().getDynamicObject() != nullptr, "missing file loads as an empty object");
+        ok (s.set ("alpha", 1), "set() creates the file");
+        ok ((int) s.get ("alpha", 0) == 1, "roundtrip");
+        s.file().replaceWithText ("{ definitely not json");
+        ok (s.load().getDynamicObject() != nullptr, "corrupt file loads as an empty object (tolerant)");
+        ok (s.set ("alpha", 2) && (int) s.get ("alpha", 0) == 2, "store recovers after corruption");
+
+        SettingsStore a ("Darwin's Cat", "AppkitGate", tmp), b ("Darwin's Cat", "AppkitGate", tmp);
+        bool aOk = true, bOk = true;
+        std::thread ta ([&] { for (int i = 0; i < 100; ++i) { aOk = aOk && a.set ("ka", i); aOk = aOk && (int) a.get ("ka", -1) == i; } });
+        std::thread tb ([&] { for (int i = 0; i < 100; ++i) { bOk = bOk && b.set ("kb", i); bOk = bOk && (int) b.get ("kb", -1) == i; } });
+        ta.join(); tb.join();
+        ok (aOk && bOk, "two RMW writers on different keys never lose each other's key (layer 1: in-process)");
+        ok ((int) s.get ("ka", -1) == 99 && (int) s.get ("kb", -1) == 99, "both keys survive with their last values");
+
+        // Layer 2 (cross-process): a real second PROCESS hammers "kc" while we hammer "kp" —
+        // fcntl is what excludes it, the in-process mutex cannot (crew finding: the two-thread
+        // test alone can pass with only one layer on some platforms).
+        {
+            const auto exe = juce::File::getSpecialLocation (juce::File::currentExecutableFile);
+            juce::ChildProcess child;
+            const bool started = child.start (juce::StringArray { exe.getFullPathName(), "--settings-child", tmp.getFullPathName() });
+            ok (started, "child process starts");
+            if (started)
+            {
+                bool pOk = true;
+                for (int i = 0; i < 100; ++i) { pOk = pOk && s.set ("kp", i); pOk = pOk && (int) s.get ("kp", -1) == i; }
+                const bool childDone = child.waitForProcessToFinish (30000);
+                ok (childDone && child.getExitCode() == 0, "child's writes all survived (cross-process RMW)");
+                ok (pOk, "parent's writes all survived while the child hammered");
+                ok ((int) s.get ("kc", -1) == 99 && (int) s.get ("kp", -1) == 99,
+                    "both processes' keys hold their last values");
+            }
+        }
+        tmp.deleteRecursively();
     }
 
     {
