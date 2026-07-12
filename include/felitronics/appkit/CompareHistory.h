@@ -87,6 +87,38 @@ public:
     int  numRegisters() const noexcept { return cfg_.numRegisters; }
     int  active()       const noexcept { return active_; }
 
+    // A register's stored snapshot, or nullopt for an empty / the active register (whose content is
+    // live, not stored). For a consumer that must inspect register contents — e.g. to embed the
+    // external assets a register references into the session save.
+    const std::optional<juce::ValueTree>& registerTree (int reg) const noexcept
+    {
+        jassert (reg >= 0 && reg < cfg_.numRegisters);
+        return registers_[static_cast<size_t> (reg)];
+    }
+
+    // Has this register accumulated edits (its own undo history is non-empty)? A legibility signal
+    // for the A/B/C/D UI — the "modified since you dialed this in" marker: true from the first edit
+    // in a register until you undo back out of it or a load clears the history. In WholeWorkspace
+    // mode there is one shared history, so this reports the same for every register.
+    bool registerEdited (int reg) const noexcept
+    {
+        jassert (reg >= 0 && reg < cfg_.numRegisters);
+        const size_t t = mode_ == Mode::PerRegister ? static_cast<size_t> (reg) : 0u;
+        return ! tracks_[t].undo.empty();
+    }
+
+    // Reset to a clean workspace — active register 0, every register empty, all history cleared.
+    // The LIVE state is left UNTOUCHED (the consumer sets it around this call, e.g. a factory
+    // default). No apply, no onAfterApply. Use for a "new document" / factory reset.
+    void reset()
+    {
+        active_ = 0;
+        for (auto& r : registers_)
+            r = std::nullopt;
+        for (auto& tr : tracks_)
+            tr = Track {};
+    }
+
     // Switch the active register: stash live into the register we leave, recall the target (a
     // never-used target keeps the current live as its seed). In WholeWorkspace mode the workspace
     // change is recorded by the settle timer (the switch is undoable). In PerRegister mode the switch
@@ -113,38 +145,47 @@ public:
             onAfterApply (Reason::Switch);
     }
 
-    // Recall another register's contents INTO the current one — an EDIT to the current register
-    // (it overwrites live, not otherwise reversible). Committed IMMEDIATELY as one discrete undo
-    // step (does not depend on the settle timer). Source register untouched.
-    void recallInto (int fromReg)
+    // Apply arbitrary CONTENT into a register as ONE discrete undoable edit — the single primitive
+    // behind every copy/paste. The source may be another register (copyRegister) OR external, e.g.
+    // a clipboard paste. If toReg is the ACTIVE register the content becomes live (an edit in its
+    // own history); otherwise it overwrites the stored register (undoable within it — switch there
+    // and undo restores the old content). Overwriting a NEVER-USED register is its "birth": no undo
+    // entry. `content` is copied; an invalid tree is a no-op. The caller validates that `content`
+    // is a payload applyLive() accepts (e.g. a pasted clipboard tree). Fires onAfterApply(Copy).
+    void applyEdit (int toReg, const juce::ValueTree& content)
     {
-        if (fromReg < 0 || fromReg >= cfg_.numRegisters || fromReg == active_)
+        if (toReg < 0 || toReg >= cfg_.numRegisters || ! content.isValid())
             return;
-        if (const auto& src = registers_[static_cast<size_t> (fromReg)]; src.has_value())
-            commitEdit (Reason::Copy, [this, &fromReg] { apply_ (*registers_[static_cast<size_t> (fromReg)]); });
-    }
-
-    // Stamp the current live state OUT into another register — an edit to THAT register's stored
-    // content, undoable within it (switch there and undo restores the old contents). Live/active
-    // untouched. Stamping into a NEVER-USED register is its "birth": no undo entry (nothing to
-    // restore to), mirroring the fresh-register seed rule.
-    void stampInto (int toReg)
-    {
-        if (toReg < 0 || toReg >= cfg_.numRegisters || toReg == active_)
-            return;
-        if (mode_ == Mode::PerRegister)
+        if (toReg == active_)
         {
-            if (auto& old = registers_[static_cast<size_t> (toReg)]; old.has_value())
-            {
-                Track& tr = tracks_[static_cast<size_t> (toReg)];
-                tr.undo.push_back (*old);                                  // only a REAL prior content is undoable
-                trimStack (tr.undo);
-                tr.redo.clear();
-            }
+            commitEdit (Reason::Copy, [this, &content] { apply_ (content); });   // edit the live/active register
+            return;
         }
-        registers_[static_cast<size_t> (toReg)] = capture_();
+        auto& slot = registers_[static_cast<size_t> (toReg)];
+        if (mode_ == Mode::PerRegister && slot.has_value())                      // a REAL prior content is undoable in toReg
+        {
+            Track& tr = tracks_[static_cast<size_t> (toReg)];
+            tr.undo.push_back (*slot);
+            trimStack (tr.undo);
+            tr.redo.clear();
+        }
+        slot = content.createCopy();
         if (onAfterApply)
             onAfterApply (Reason::Copy);
+    }
+
+    // Copy one register's content INTO another as a discrete undoable edit in the target — the
+    // internal-source case of applyEdit (drag A/B/C/D onto another, or the copy menu: "copy here
+    // from X" = copyRegister(X, current); "copy this to Y" = copyRegister(current, Y)). No-op if
+    // the source is empty or the same slot.
+    void copyRegister (int from, int to)
+    {
+        if (from < 0 || from >= cfg_.numRegisters || from == to)
+            return;
+        const juce::ValueTree src = (from == active_)
+                                        ? capture_()
+                                        : registers_[static_cast<size_t> (from)].value_or (juce::ValueTree());
+        applyEdit (to, src);
     }
 
     //== undo / redo (settle-timer coalescing) ===================================================
