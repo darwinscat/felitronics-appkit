@@ -64,8 +64,15 @@ inline DeviceSpec parseDeviceSpec (const juce::String& s)
 inline int deviceSpecCount (const DeviceSpec& spec)
 {
     int n = 0;
-    for (const auto& p : spec) n += p.second;
-    return juce::jlimit (0, kMaxDeviceGlyphs, n);
+    for (const auto& p : spec)
+    {
+        if (p.second <= 0)
+            continue;
+        n += juce::jmin (p.second, kMaxDeviceGlyphs - n);
+        if (n >= kMaxDeviceGlyphs)
+            return kMaxDeviceGlyphs;
+    }
+    return n;
 }
 
 } // namespace felitronics::appkit

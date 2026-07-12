@@ -182,8 +182,9 @@ inline void drawDeviceSpecStatic (juce::Graphics& g, juce::Rectangle<float> area
         return;
     const float cell = juce::jmin (area.getHeight(), area.getWidth() / (float) total);
     auto row = area.withSizeKeepingCentre (cell * (float) total, cell);
+    int drawn = 0;
     for (const auto& [type, cnt] : spec)
-        for (int i = 0; i < cnt; ++i)
+        for (int i = 0; i < cnt && drawn < total; ++i, ++drawn)
             drawDeviceGlyph (g, row.removeFromLeft (cell).reduced (cell * 0.12f), type, deviceStroke (type));
 }
 
@@ -221,7 +222,7 @@ public:
         auto row = area.withSizeKeepingCentre (cell * (float) total, cell);
         int gi = 0;
         for (const auto& [type, cnt] : spec)
-            for (int i = 0; i < cnt; ++i, ++gi)
+            for (int i = 0; i < cnt && gi < total; ++i, ++gi)
             {
                 auto c = row.removeFromLeft (cell);
                 const auto  ctr  = c.getCentre();
