@@ -17,6 +17,8 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <cmath>
+
 namespace felitronics::appkit
 {
 
@@ -29,6 +31,9 @@ public:
     // a hot internal tap (e.g. a preamp-OUT) reads better on a tighter range like −24..+6.
     void setRange (float floorDb, float ceilDb)
     {
+        if (! std::isfinite (floorDb) || ! std::isfinite (ceilDb) || floorDb >= ceilDb)
+            return;
+
         minDb_ = floorDb;
         maxDb_ = ceilDb;
         repaint();
