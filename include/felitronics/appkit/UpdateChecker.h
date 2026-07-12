@@ -135,6 +135,7 @@ public:
     }
 
     juce::String currentVersion() const { return config.currentVersion; }
+    juce::String ownerRepo()      const { return config.ownerRepo; }        // the "<owner>/<repo>" slug (VersionBadge derives its GitHub links from it)
 
     // Fire the check on the owned background worker; `onDone` is invoked on the message thread with
     // the result (ok=false on any failure — silent, opt-in). MESSAGE THREAD ONLY. If a check is

@@ -11,10 +11,18 @@
 #include <felitronics/appkit/Brand.h>
 #include <felitronics/appkit/BrandHeader.h>
 #include <felitronics/appkit/Download.h>
+#include <felitronics/appkit/LevelMeter.h>
+#include <felitronics/appkit/IconButton.h>
+#include <felitronics/appkit/CallOut.h>
+#include <felitronics/appkit/DeviceGlyph.h>
+#include <felitronics/appkit/DeviceSpec.h>
+#include <felitronics/appkit/Flicker.h>
 #include <felitronics/appkit/NotifyPing.h>
+#include <felitronics/appkit/PerfBadge.h>
 #include <felitronics/appkit/SettingsStore.h>
 #include <felitronics/appkit/TextPrompt.h>
 #include <felitronics/appkit/UpdateChecker.h>
+#include <felitronics/appkit/VersionBadge.h>
 
 #include <cstdio>
 #include <cstring>
@@ -53,10 +61,82 @@ int main (int argc, char** argv)
     // Brand.h / TextPrompt.h are GUI headers — this tier only gates that they COMPILE clean and
     // link under the consumer flag set (no window/system usage in a headless CI runner).
     {
-        auto* mark = &felitronics::appkit::brand::drawOrbit;   (void) mark;
-        auto* prompt = &felitronics::appkit::textPrompt;       (void) prompt;
+        auto* mark = &felitronics::appkit::brand::drawOrbit;       (void) mark;
+        auto* rings = &felitronics::appkit::brand::drawOrbitRings; (void) rings;
+        auto* width = &felitronics::appkit::brand::textWidth;      (void) width;
+        auto* prompt = &felitronics::appkit::textPrompt;           (void) prompt;
         ok (felitronics::appkit::brand::violet != felitronics::appkit::brand::orange,
             "brand palette is distinct");
+        ok (felitronics::appkit::brand::wordmarkFont (nullptr, 14.0f).getHeight() > 13.0f,
+            "wordmarkFont: bold system fallback when the typeface is null");
+    }
+
+    // LevelMeter: a plain Component — safe to construct and feed headless (no peer, so repaint()
+    // is inert and paint() never runs). Exercises the ballistics/setRange paths under real JUCE.
+    {
+        felitronics::appkit::LevelMeter meter;
+        meter.setSize (14, 120);
+        meter.setRange (-24.0f, 6.0f);
+        for (int i = 0; i < 30; ++i) meter.setLevel (i < 3 ? 0.9f : 0.0f);   // attack, then release + hold decay
+        ok (meter.getWidth() == 14 && meter.getHeight() == 120, "LevelMeter constructs and accepts levels headless");
+
+        const felitronics::appkit::IconButton icon (felitronics::appkit::IconButton::Kind::settings);
+        ok (icon.colour == juce::Colour (0xffc0c0c8) && icon.panelColour == juce::Colour (0xff1b1b1f)
+                && ! icon.framed,
+            "IconButton defaults pin OrbitCab's neutral/panel look");
+    }
+
+    // DeviceGlyph.h / Flicker.h: headless smoke — run the shared shimmer kernel (levels must hold
+    // the documented [0.5, 1] band around the 0.84 rest), then software-render the flickering strip
+    // and the static popup row into a juce::Image (no window — CI-safe): the glyphs must actually
+    // put paint down. DeviceSpec.h behaviour itself is unit-covered by appkit_device_spec_tests.
+    {
+        using felitronics::appkit::DeviceStrip;
+        using felitronics::appkit::DeviceType;
+        namespace fk = felitronics::appkit;
+
+        fk::Flicker<fk::kMaxDeviceGlyphs> flick;
+        bool band = flick[0] > 0.83f && flick[0] < 0.85f;   // rest level before the first tick
+        for (int f = 0; f < 90; ++f)                        // ~3 s at the products' 30 Hz
+        {
+            flick.tick();
+            for (int i = 0; i < flick.size(); ++i)
+                band = band && flick[i] >= 0.5f && flick[i] <= 1.0f;
+        }
+        ok (band, "flicker levels hold the [0.5, 1] band around the 0.84 rest");
+        ok (flick[-5] >= 0.5f && flick[999] <= 1.0f, "out-of-range flicker channels clamp, not UB");
+
+        const auto spec = fk::parseDeviceSpec ("tube:1,pnp:1");
+        ok (fk::deviceSpecCount (spec) == 2, "hybrid spec parses to 2 glyphs");
+        ok (fk::deviceGlow (DeviceType::tube) != fk::deviceGlow (DeviceType::pnp),
+            "hybrid glows two family colours");
+
+        auto paintedPixels = [] (const juce::Image& img)
+        {
+            int n = 0;
+            for (int y = 0; y < img.getHeight(); ++y)
+                for (int x = 0; x < img.getWidth(); ++x)
+                    if (img.getPixelAt (x, y).getAlpha() > 0) ++n;
+            return n;
+        };
+
+        DeviceStrip strip;
+        strip.setSize (120, 28);
+        strip.set (spec);
+        for (int f = 0; f < 3; ++f) strip.tick();
+        juce::Image stripImg (juce::Image::ARGB, 120, 28, true);
+        {
+            juce::Graphics ig (stripImg);
+            strip.paint (ig);
+        }
+        ok (paintedPixels (stripImg) > 100, "DeviceStrip paints glyphs + glow headlessly");
+
+        juce::Image rowImg (juce::Image::ARGB, 120, 28, true);
+        {
+            juce::Graphics ig (rowImg);
+            fk::drawDeviceSpecStatic (ig, { 0.0f, 0.0f, 120.0f, 28.0f }, spec);
+        }
+        ok (paintedPixels (rowImg) > 50, "static popup row paints headlessly");
     }
 
     // SettingsStore: functional smoke in an isolated temp dir (never the developer's real
@@ -106,9 +186,39 @@ int main (int argc, char** argv)
         tmp.deleteRecursively();
     }
 
+    // VersionBadge / PerfBadge / CallOut — GUI headers: compile-gated under the consumer flag set
+    // and smoke-constructed headless (components are never added to the desktop, no popups shown).
+    {
+        ChkAdapter c;
+        felitronics::appkit::VersionBadge badge (c,
+            { .productName   = "Appkit Gate",
+              .productUrl    = "https://example.invalid/appkit-gate",
+              .gitHash       = "deadbee",
+              .buildNumber   = 20260712000000LL,
+              .buildCount    = 7,
+              .gitDirty      = true,
+              .os = "macOS", .arch = "arm64", .builder = "gate",
+              .coreVersion   = "v0.1.0 (local)",
+              .coreOwnerRepo = "darwinscat/felitronics-core" },
+            "Standalone");
+        ok (badge.getTooltip().startsWith ("Appkit Gate v") && badge.getTooltip().contains ("(Standalone)"),
+            "version badge tooltip derives from Config + checker");
+
+        felitronics::appkit::PerfBadge perf ({ .rows = { { "Stage A", felitronics::appkit::brand::violet },
+                                                         { "Stage B", felitronics::appkit::brand::orange } } });
+        felitronics::appkit::PerfBadge::Stats st;
+        st.latencySamples = 64; st.latencyMs = 1.33f; st.total = 42.0f; st.stages = { 12.0f, 30.0f };
+        perf.setStats (st);
+        ok (perf.getStats().latencySamples == 64 && perf.getStats().stages.size() == 2,
+            "perf badge stats snapshot roundtrips");
+
+        auto* callout = &felitronics::appkit::launchCallOut;   (void) callout;
+    }
+
     {
         ChkAdapter c;
         ok (c.releasesPageUrl() == "https://github.com/darwinscat/felitronics-appkit/releases/latest", "releasesPageUrl derives from the slug");
+        ok (c.ownerRepo() == "darwinscat/felitronics-appkit", "ownerRepo echoes Config (badge link base)");
         ok (c.currentVersion() == "v0.1.0-7-gdeadbee", "currentVersion echoes Config");
         ok (! c.updateAvailable(), "null settings -> no stored badge");
         ok (c.storedLatest().isEmpty(), "null settings -> empty storedLatest");
