@@ -56,6 +56,12 @@ target_compile_features(appkit_update_compare_tests PRIVATE cxx_std_20)
 target_compile_options(appkit_update_compare_tests PRIVATE ${APPKIT_STRICT_FLAGS})
 add_test(NAME appkit_update_compare_tests COMMAND appkit_update_compare_tests)
 
+add_executable(appkit_update_compare_falsify_tests tests/UpdateCompareFalsifyTests.cpp)
+target_link_libraries(appkit_update_compare_falsify_tests PRIVATE felitronics::appkit)
+target_compile_features(appkit_update_compare_falsify_tests PRIVATE cxx_std_20)
+target_compile_options(appkit_update_compare_falsify_tests PRIVATE ${APPKIT_STRICT_FLAGS})
+add_test(NAME appkit_update_compare_falsify_tests COMMAND appkit_update_compare_falsify_tests)
+
 # --- JUCE tier: UpdateChecker.h through a real consumer's compiler flags ----------------------------
 if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
     include(FetchContent)
@@ -67,6 +73,20 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
             GIT_TAG        8.0.14)   # the family's pinned JUCE
     endif()
     FetchContent_MakeAvailable(juce)
+
+    add_executable(appkit_update_checker_falsify_tests tests/UpdateCheckerFalsifyTests.cpp)
+    target_link_libraries(appkit_update_checker_falsify_tests PRIVATE
+        felitronics::appkit
+        juce::juce_events juce::juce_data_structures
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_update_checker_falsify_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0)
+    target_compile_features(appkit_update_checker_falsify_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_update_checker_falsify_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_update_checker_falsify_tests COMMAND appkit_update_checker_falsify_tests)
 
     add_executable(appkit_consumer_compile_check tests/ConsumerCompileCheck.cpp)
     target_link_libraries(appkit_consumer_compile_check PRIVATE

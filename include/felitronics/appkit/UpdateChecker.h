@@ -201,7 +201,7 @@ private:
     static juce::String stripV (juce::String tag)
     {
         tag = tag.trim();
-        return tag.startsWithIgnoreCase ("v") ? tag.substring (1) : tag;
+        return tag.startsWithIgnoreCase ("v") && update::isCleanRelease (tag.toStdString()) ? tag.substring (1) : tag;
     }
 
     // Worker thread. Blocking; the stream is registered under streamLock while it can block so the
