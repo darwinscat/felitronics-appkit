@@ -80,7 +80,7 @@ public:
     {
         jassert (config.productName.isNotEmpty());   // no name, no badge
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
-        setTooltip (config.productName + " v" + checker.currentVersion() + " (" + format + ") — click to check for updates");
+        setTooltip (config.productName + " " + displayVersionTag (checker.currentVersion()) + " (" + format + ") — click to check for updates");
     }
 
     // The editor supplies the embedded brand typeface (loaded once for the header) so the popover's
@@ -96,7 +96,7 @@ public:
         // Line 1 — the version, a touch bigger; line 2 (below) is the running plugin format.
         auto verRow = r.removeFromTop (r.getHeight() * 0.56f);
         const juce::Font verFont (juce::FontOptions (14.0f, juce::Font::bold));
-        const juce::String ver = "v" + checker.currentVersion();
+        const juce::String ver = displayVersionTag (checker.currentVersion());
         g.setFont (verFont);
         g.setColour (upd ? config.accentHover : juce::Colour (0xff8a8a92));
         g.drawText (ver, verRow, juce::Justification::centredLeft, false);
@@ -129,6 +129,25 @@ private:
         juce::GlyphArrangement ga;
         ga.addLineOfText (f, s, 0.0f, 0.0f);
         return ga.getBoundingBox (0, -1, true).getWidth();
+    }
+
+    static juce::String displayVersionTag (juce::String version)
+    {
+        version = version.trim();
+        if (version.isEmpty())
+            return {};
+        if (version.startsWithIgnoreCase ("v"))
+            return "v" + version.substring (1);
+        const auto first = version[0];
+        return first >= '0' && first <= '9' ? "v" + version : version;
+    }
+
+    static juce::String releaseTagForCurrentVersion (juce::String version)
+    {
+        const juce::String tag = displayVersionTag (std::move (version));
+        const juce::String base = tag.upToFirstOccurrenceOf ("-", false, false)
+                                     .upToFirstOccurrenceOf ("+", false, false);
+        return update::isCleanRelease (base.toStdString()) ? base : tag;
     }
 
     //--- the CallOutBox content ----------------------------------------------
@@ -167,8 +186,8 @@ private:
                 addAndMakeVisible (b);
             };
             const juce::String repoBase = "https://github.com/" + chk.ownerRepo();
-            const juce::String ver = "v" + chk.currentVersion();
-            ghLink (verLink,    ver,                                 repoBase + "/releases/tag/" + ver);
+            const juce::String ver = displayVersionTag (chk.currentVersion());
+            ghLink (verLink,    ver,                                 repoBase + "/releases/tag/" + releaseTagForCurrentVersion (chk.currentVersion()));
             ghLink (commitLink, juce::String ("g") + config.gitHash, repoBase + "/commit/" + config.gitHash);
             if (hasCore)
             {
