@@ -16,6 +16,13 @@ Header-only. The CMake target adds an include path and nothing else — **the co
 | `felitronics/appkit/UpdateChecker.h` | `juce_events`, `juce_data_structures` | The opt-in GitHub-release update check: user-click only (never on launch), owned worker thread joined on destruction, silent failure, badge persisted in the product's `PropertiesFile`. |
 | `felitronics/appkit/Brand.h` | `juce_gui_basics` | The Darwin's Cat identity, consolidated from the diverged orbitcab/orbit-capture copies: palette (`brand::violet/lilac/orange`), the orbit "target" mark (`drawOrbit`), the fixed 8-slot palette, the large-glyph `GearButton`. |
 | `felitronics/appkit/TextPrompt.h` | `juce_gui_basics` | One-line modal text prompt (OK/Enter · Cancel/Esc), brand-styled. |
+| `felitronics/appkit/DeviceSpec.h` | `juce_core` | The parsed "device" spec model — tube/BJT/FET/DSP/diode with counts, hybrids like `"tube:1,pnp:1"`; malformed input drops entries, never garbage. Pure data, unit-tested here. |
+| `felitronics/appkit/DeviceGlyph.h` | `juce_gui_basics` | Schematic device glyphs (triode, PNP, JFET, chip, diode) + the glowing `DeviceStrip` row, per-family stroke/glow colours. Moved verbatim from OrbitCab. |
+| `felitronics/appkit/Flicker.h` | `juce_core` | The shared one-pole "heater glow" shimmer kernel: two detuned sines + jitter, one-pole smoothed. Drives `DeviceStrip` (and OrbitCab's power-tube heaters) so the whole family flickers the same way. |
+| `felitronics/appkit/LevelMeter.h` | `juce_audio_basics`, `juce_gui_basics` | Thin vertical dBFS peak meter (from OrbitCab): instant-attack/smooth-release ballistics + peak-hold, zoomable range (`setRange`), scale ticks/labels. Fed on the message thread — a GUI timer (~30 Hz) reads the processor's atomic per-block peak and calls `setLevel`. |
+| `felitronics/appkit/CallOut.h` | `juce_gui_basics` | `launchCallOut`: a CallOutBox parented to the editor, not the desktop — a desktop call-out orphans on screen when the plugin window closes. |
+| `felitronics/appkit/VersionBadge.h` | `juce_gui_basics` | The clickable "vX.Y.Z / format" corner badge + update popover (brand mark, full build stamp with GitHub links, opt-in "Check for updates"). Fronts the product's `UpdateChecker` adapter; identity/build-stamp/dependency-line in its `Config`. |
+| `felitronics/appkit/PerfBadge.h` | `juce_gui_basics` | The clickable "latency · CPU%" badge + live per-stage DSP-load popover; the product's stage rows (label + colour) are `Config` data, stats pushed as snapshots. |
 
 Brand *assets* (Michroma font + OFL license, `catlogo.svg`) live in [`assets/`](assets/) — embed them
 from your app's CMake: `juce_add_binary_data(MyAssets SOURCES ${felitronics_appkit_SOURCE_DIR}/assets/Michroma-Regular.ttf …)`
@@ -42,10 +49,10 @@ cmake -B build -DFELITRONICS_APPKIT_TESTS_WITH_JUCE=ON   # ON fetches JUCE for t
 cmake --build build -j && ctest --test-dir build
 ```
 
-The JUCE-free tier (`UpdateCompare`) always tests offline. The JUCE tier compiles `UpdateChecker.h`
-under `juce_recommended_warning_flags` + `-Werror` — the exact flag class the products build with —
-and smoke-runs it without touching the network (pass `--live` to the binary manually for one real
-end-to-end GitHub check).
+The JUCE-free tier (`UpdateCompare`) always tests offline. The JUCE tier runs the `DeviceSpec`
+parsing unit and compiles every JUCE header under `juce_recommended_warning_flags` + `-Werror` —
+the exact flag class the products build with — then smoke-runs the gate without touching the
+network (pass `--live` to the binary manually for one real end-to-end GitHub check).
 
 ## License
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(felitronics_appkit VERSION 0.1.0 LANGUAGES C CXX)   # C: juce_graphics compiles Sheenbidi (.c) in the JUCE test tier
+project(felitronics_appkit VERSION 0.3.0 LANGUAGES C CXX)   # C: juce_graphics compiles Sheenbidi (.c) in the JUCE test tier
 
 # ----------------------------------------------------------------------------
 # felitronics-appkit — APP-SIDE (non-DSP) JUCE infrastructure shared by the Darwin's Cat product
@@ -8,9 +8,10 @@ project(felitronics_appkit VERSION 0.1.0 LANGUAGES C CXX)   # C: juce_graphics c
 # JUCE app/plugin around it.
 #
 # Header-only. The interface target adds an include path and NOTHING else — the CONSUMER supplies
-# JUCE (juce_events + juce_data_structures for UpdateChecker.h). UpdateCompare.h is JUCE-free and
-# covered by this repo's own ctest; UpdateChecker.h is compile-gated here against a fetched JUCE
-# (ConsumerCompileCheck) and behaviour-covered by the consumers' CI.
+# JUCE (see the README table for each header's modules). UpdateCompare.h is JUCE-free and covered
+# by this repo's own ctest; DeviceSpec.h (juce_core) gets its behaviour unit in the JUCE tier; the
+# JUCE headers are compile-gated here against a fetched JUCE (ConsumerCompileCheck) and
+# behaviour-covered by the consumers' CI.
 #
 # Consume (pinned by tag, exactly like JUCE / felitronics-core):
 #   include(FetchContent)
@@ -87,6 +88,152 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
         target_compile_options(appkit_update_checker_falsify_tests PRIVATE -Werror)
     endif()
     add_test(NAME appkit_update_checker_falsify_tests COMMAND appkit_update_checker_falsify_tests)
+    # Theory-first falsification suite for LevelMeter.h — reads back the ballistics MATH from paint()
+    # via a recording graphics context (no pixels, no hooks). LevelMeter parses/renders with JUCE, so
+    # it lives HERE in the JUCE tier; JUCE module sources compile into this target, so it takes the
+    # recommended flags (+ -Werror) rather than APPKIT_STRICT_FLAGS.
+    add_executable(appkit_level_meter_theory_tests tests/LevelMeterTheoryTests.cpp)
+    target_link_libraries(appkit_level_meter_theory_tests PRIVATE
+        felitronics::appkit
+        juce::juce_audio_basics juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_level_meter_theory_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_level_meter_theory_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_level_meter_theory_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_level_meter_theory_tests COMMAND appkit_level_meter_theory_tests)
+
+    add_executable(appkit_level_meter_falsify_tests tests/LevelMeterFalsifyTests.cpp)
+    target_link_libraries(appkit_level_meter_falsify_tests PRIVATE
+        felitronics::appkit
+        juce::juce_audio_basics juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_level_meter_falsify_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_level_meter_falsify_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_level_meter_falsify_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_level_meter_falsify_tests COMMAND appkit_level_meter_falsify_tests)
+
+    add_executable(appkit_icon_button_falsify_tests tests/IconButtonFalsifyTests.cpp)
+    target_link_libraries(appkit_icon_button_falsify_tests PRIVATE
+        felitronics::appkit
+        juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_icon_button_falsify_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_icon_button_falsify_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_icon_button_falsify_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_icon_button_falsify_tests COMMAND appkit_icon_button_falsify_tests)
+
+    add_executable(appkit_badges_falsify_tests tests/BadgesFalsifyTests.cpp)
+    target_link_libraries(appkit_badges_falsify_tests PRIVATE
+        felitronics::appkit
+        juce::juce_events juce::juce_data_structures juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_badges_falsify_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_badges_falsify_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_badges_falsify_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_badges_falsify_tests COMMAND appkit_badges_falsify_tests)
+
+    add_executable(appkit_brand_falsify_tests tests/BrandFalsifyTests.cpp)
+    target_link_libraries(appkit_brand_falsify_tests PRIVATE
+        felitronics::appkit
+        juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_brand_falsify_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_brand_falsify_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_brand_falsify_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_brand_falsify_tests COMMAND appkit_brand_falsify_tests)
+    # DeviceSpec.h behaviour unit — registered exactly like appkit_update_compare_tests, but the
+    # model parses with juce::String (juce_core tier), so it lives HERE, not in the JUCE-free tier.
+    # JUCE module sources compile into this target, so it takes the recommended flags (+ -Werror)
+    # rather than APPKIT_STRICT_FLAGS.
+    add_executable(appkit_device_spec_tests tests/DeviceSpecTests.cpp)
+    target_link_libraries(appkit_device_spec_tests PRIVATE
+        felitronics::appkit
+        juce::juce_core
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_device_spec_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0)
+    target_compile_features(appkit_device_spec_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_device_spec_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_device_spec_tests COMMAND appkit_device_spec_tests)
+
+    # Theory-first falsification suites (registered exactly like appkit_device_spec_tests): the
+    # DeviceSpec grammar property-fuzz and the Flicker shimmer kernel (bounds + phase-freeze fix).
+    add_executable(appkit_device_spec_theory_tests tests/DeviceSpecTheoryTests.cpp)
+    target_link_libraries(appkit_device_spec_theory_tests PRIVATE
+        felitronics::appkit
+        juce::juce_core
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_device_spec_theory_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0)
+    target_compile_features(appkit_device_spec_theory_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_device_spec_theory_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_device_spec_theory_tests COMMAND appkit_device_spec_theory_tests)
+
+    add_executable(appkit_flicker_theory_tests tests/FlickerTheoryTests.cpp)
+    target_link_libraries(appkit_flicker_theory_tests PRIVATE
+        felitronics::appkit
+        juce::juce_core
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_flicker_theory_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0)
+    target_compile_features(appkit_flicker_theory_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_flicker_theory_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_flicker_theory_tests COMMAND appkit_flicker_theory_tests)
+
+    add_executable(appkit_device_glyph_falsify_tests tests/DeviceGlyphFalsifyTests.cpp)
+    target_link_libraries(appkit_device_glyph_falsify_tests PRIVATE
+        felitronics::appkit
+        juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_device_glyph_falsify_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_device_glyph_falsify_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_device_glyph_falsify_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_device_glyph_falsify_tests COMMAND appkit_device_glyph_falsify_tests)
 
     add_executable(appkit_compare_history_tests tests/CompareHistoryTests.cpp)
     target_link_libraries(appkit_compare_history_tests PRIVATE
