@@ -189,6 +189,36 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
     endif()
     add_test(NAME appkit_device_spec_tests COMMAND appkit_device_spec_tests)
 
+    # Theory-first falsification suites (registered exactly like appkit_device_spec_tests): the
+    # DeviceSpec grammar property-fuzz and the Flicker shimmer kernel (bounds + phase-freeze fix).
+    add_executable(appkit_device_spec_theory_tests tests/DeviceSpecTheoryTests.cpp)
+    target_link_libraries(appkit_device_spec_theory_tests PRIVATE
+        felitronics::appkit
+        juce::juce_core
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_device_spec_theory_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0)
+    target_compile_features(appkit_device_spec_theory_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_device_spec_theory_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_device_spec_theory_tests COMMAND appkit_device_spec_theory_tests)
+
+    add_executable(appkit_flicker_theory_tests tests/FlickerTheoryTests.cpp)
+    target_link_libraries(appkit_flicker_theory_tests PRIVATE
+        felitronics::appkit
+        juce::juce_core
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_flicker_theory_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0)
+    target_compile_features(appkit_flicker_theory_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_flicker_theory_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_flicker_theory_tests COMMAND appkit_flicker_theory_tests)
+
     add_executable(appkit_consumer_compile_check tests/ConsumerCompileCheck.cpp)
     target_link_libraries(appkit_consumer_compile_check PRIVATE
         felitronics::appkit
