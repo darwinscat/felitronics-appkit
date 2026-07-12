@@ -87,6 +87,25 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
         target_compile_options(appkit_update_checker_falsify_tests PRIVATE -Werror)
     endif()
     add_test(NAME appkit_update_checker_falsify_tests COMMAND appkit_update_checker_falsify_tests)
+    # Theory-first falsification suite for LevelMeter.h — reads back the ballistics MATH from paint()
+    # via a recording graphics context (no pixels, no hooks). LevelMeter parses/renders with JUCE, so
+    # it lives HERE in the JUCE tier; JUCE module sources compile into this target, so it takes the
+    # recommended flags (+ -Werror) rather than APPKIT_STRICT_FLAGS.
+    add_executable(appkit_level_meter_theory_tests tests/LevelMeterTheoryTests.cpp)
+    target_link_libraries(appkit_level_meter_theory_tests PRIVATE
+        felitronics::appkit
+        juce::juce_audio_basics juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_level_meter_theory_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_level_meter_theory_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_level_meter_theory_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_level_meter_theory_tests COMMAND appkit_level_meter_theory_tests)
 
     add_executable(appkit_consumer_compile_check tests/ConsumerCompileCheck.cpp)
     target_link_libraries(appkit_consumer_compile_check PRIVATE
