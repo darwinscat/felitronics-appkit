@@ -235,6 +235,20 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
     endif()
     add_test(NAME appkit_device_glyph_falsify_tests COMMAND appkit_device_glyph_falsify_tests)
 
+    add_executable(appkit_compare_history_tests tests/CompareHistoryTests.cpp)
+    target_link_libraries(appkit_compare_history_tests PRIVATE
+        felitronics::appkit
+        juce::juce_events juce::juce_data_structures
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_compare_history_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0)
+    target_compile_features(appkit_compare_history_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_compare_history_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_compare_history_tests COMMAND appkit_compare_history_tests)
+
     add_executable(appkit_consumer_compile_check tests/ConsumerCompileCheck.cpp)
     target_link_libraries(appkit_consumer_compile_check PRIVATE
         felitronics::appkit
