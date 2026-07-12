@@ -33,7 +33,10 @@ inline DownloadResult downloadFile (const juce::URL& url, const juce::File& dest
                                     const std::function<bool (juce::int64, juce::int64)>& onProgress = {})
 {
     DownloadResult r;
-    auto part = dest.getSiblingFile (dest.getFileName() + ".part");
+    // Unique temp name: two callers (e.g. two app instances sharing one cache) must never write
+    // the same .part — the loser of the final rename just wastes bytes, never corrupts the winner.
+    auto part = dest.getSiblingFile (dest.getFileName() + ".part-"
+                                     + juce::String (juce::Uuid().toString().substring (0, 8)));
     part.deleteFile();
     if (! part.getParentDirectory().createDirectory()) { r.error = "cannot create " + dest.getParentDirectory().getFullPathName(); return r; }
 
@@ -58,6 +61,8 @@ inline DownloadResult downloadFile (const juce::URL& url, const juce::File& dest
             if (onProgress && ! onProgress (done, total)) { part.deleteFile(); r.error = "cancelled"; return r; }
         }
         os.flush();
+        if (os.getStatus().failed()) { part.deleteFile(); r.error = "disk flush failed"; return r; }
+        if (total >= 0 && done != total) { part.deleteFile(); r.error = "short read (connection dropped)"; return r; }
     }
 
     if (expectedSha256Hex.isNotEmpty())
