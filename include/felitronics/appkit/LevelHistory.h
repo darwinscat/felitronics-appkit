@@ -52,6 +52,15 @@ public:
         repaint();
     }
 
+    // A hard "too hot" ceiling, independent of the displayed corridor: any history column whose peak
+    // exceeded ceilDb is painted a FULL-HEIGHT red bar (an overload can't hide down in the trace). A
+    // non-finite value clears it. Distinct from the green zone's red ceiling line, which only tints.
+    void setClipCeiling (float ceilDb)
+    {
+        clipCeiling_ = ceilDb;
+        repaint();
+    }
+
     // One GUI tick: append the latest linear peak (0..~1+) and advance the strip one column.
     void push (float linearPeak)
     {
@@ -151,6 +160,19 @@ public:
             g.strokePath (line, juce::PathStrokeType (1.4f));
         }
 
+        // Hard-ceiling overloads: full-height red bars for every column that broke the ceiling — an
+        // overload spike is visible even when it lasted a single tick. Painted OVER the trace.
+        if (std::isfinite (clipCeiling_))
+        {
+            g.setColour (juce::Colour (0xffe0402e).withAlpha (0.6f));
+            for (int i = 0; i < n; ++i)
+                if (hist_[(size_t) ((head_ + i) % n)] > clipCeiling_)
+                {
+                    const float x = b.getX() + (float) i / (float) (n - 1) * b.getWidth();
+                    g.fillRect (x - 0.5f, b.getY(), 1.5f, b.getHeight());
+                }
+        }
+
         if (peakHold_ > kSilenceDb + 0.5f && getWidth() >= 60)   // held-peak readout, top-right
         {
             g.setColour (hasZone() && peakHold_ > zoneHi_ ? red : juce::Colours::white);
@@ -182,6 +204,9 @@ private:
     // Corridor thresholds (dBFS). NaN = no corridor → plain grey trace (default).
     float zoneLo_ = std::numeric_limits<float>::quiet_NaN();
     float zoneHi_ = std::numeric_limits<float>::quiet_NaN();
+
+    // Hard overload ceiling (dBFS). NaN = off. Columns above it get a full-height red bar.
+    float clipCeiling_ = std::numeric_limits<float>::quiet_NaN();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LevelHistory)
 };

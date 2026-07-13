@@ -218,6 +218,24 @@ int main()
         ok (render (h).size() == 1, "a NaN threshold also clears the corridor");
     }
 
+    // =============================================================================================
+    group ("clip ceiling: over-ceiling columns paint full-height red bars (fillRect, not the trace)");
+    {
+        LevelHistory h (16);
+        h.setSize (kW, kH);
+        for (int i = 0; i < 16; ++i) h.push (gain (-7.5f));    // all below a -3 ceiling
+        h.setClipCeiling (-3.0f);
+        ok (render (h).size() == 1, "no column over the ceiling ⇒ still just the trace path");
+
+        h.push (gain (-1.0f));                                  // one over-ceiling spike
+        ok (render (h).size() == 1, "the red bar is a fillRect, not a path — trace count is unchanged");
+        // peakDb() and the trace math must be untouched by the ceiling
+        ok (near (h.peakDb(), -1.0f, 0.01f), "clip ceiling does not disturb the held peak");
+
+        h.setClipCeiling (std::numeric_limits<float>::quiet_NaN());
+        ok (render (h).size() == 1, "clearing the ceiling is a no-op on the path set");
+    }
+
     std::printf ("%d checks, %d failures\n%s\n", checks, failures, failures == 0 ? "ALL TESTS PASSED" : "FAILED");
     return failures == 0 ? 0 : 1;
 }
