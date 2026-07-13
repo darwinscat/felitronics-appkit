@@ -124,6 +124,22 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
     endif()
     add_test(NAME appkit_level_meter_falsify_tests COMMAND appkit_level_meter_falsify_tests)
 
+    add_executable(appkit_level_history_falsify_tests tests/LevelHistoryFalsifyTests.cpp)
+    target_link_libraries(appkit_level_history_falsify_tests PRIVATE
+        felitronics::appkit
+        juce::juce_audio_basics juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_level_history_falsify_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_level_history_falsify_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_level_history_falsify_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_level_history_falsify_tests COMMAND appkit_level_history_falsify_tests)
+
     add_executable(appkit_icon_button_falsify_tests tests/IconButtonFalsifyTests.cpp)
     target_link_libraries(appkit_icon_button_falsify_tests PRIVATE
         felitronics::appkit

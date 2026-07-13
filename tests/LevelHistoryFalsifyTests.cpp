@@ -1,0 +1,223 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (c) 2026 Darwin's Cat — Oleh Tsymaienko & Alisa Lafoks. Part of felitronics-appkit — see LICENSE.
+
+// Falsification suite for LevelHistory.h (the scrolling peak-history strip).
+//
+// Like the LevelMeter suites we test the MATH, not pixels. Three observable surfaces:
+//   • peakDb() — the documented hold ballistics read directly: sticks for exactly kHoldTicks (30)
+//     quiet ticks, then walks down kDecayDbPerTick (0.8 dB) per tick, floored at the current input.
+//   • the TRACE — with no corridor set, paint() strokes exactly ONE path (the trace); a recording
+//     LowLevelGraphicsContext captures its geometry, which must sit on the documented affine dB→y
+//     map (and move when setRange re-maps it).
+//   • the CORRIDOR — a valid setGreenZone adds the gradient fill + dashed threshold fills on top of
+//     the trace; an invalid pair must CLEAR it back to the single-path strip.
+//
+// Registers in the FELITRONICS_APPKIT_TESTS_WITH_JUCE tier like the other paint-reading gates.
+
+#include <felitronics/appkit/LevelHistory.h>
+
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <memory>
+#include <string>
+#include <vector>
+
+using namespace felitronics::appkit;
+
+static int checks = 0, failures = 0;
+static void ok (bool cond, const std::string& what)
+{
+    ++checks;
+    if (! cond) { ++failures; std::printf ("    FAIL: %s\n", what.c_str()); }
+}
+static void group (const char* name) { std::printf ("  - %s\n", name); }
+
+// Strip geometry: narrow enough that the peak readout (needs width ≥ 60) never draws — the trace
+// and corridor fills are the only paths that reach the context.
+static constexpr int kW = 48;
+static constexpr int kH = 220;
+
+//==============================================================================
+// Recording context: collects the bounds of every fillPath (stroked paths arrive here too).
+class RecordingContext final : public juce::LowLevelGraphicsContext
+{
+public:
+    std::vector<juce::Rectangle<float>> paths;
+
+    bool isVectorDevice() const override { return true; }
+    void setOrigin (juce::Point<int>) override {}
+    void addTransform (const juce::AffineTransform&) override {}
+    float getPhysicalPixelScaleFactor() const override { return 1.0f; }
+    bool clipToRectangle (const juce::Rectangle<int>&) override { return true; }
+    bool clipToRectangleList (const juce::RectangleList<int>&) override { return true; }
+    void excludeClipRectangle (const juce::Rectangle<int>&) override {}
+    void clipToPath (const juce::Path&, const juce::AffineTransform&) override {}
+    void clipToImageAlpha (const juce::Image&, const juce::AffineTransform&) override {}
+    bool clipRegionIntersects (const juce::Rectangle<int>&) override { return true; }
+    juce::Rectangle<int> getClipBounds() const override { return { 0, 0, 1 << 20, 1 << 20 }; }
+    bool isClipEmpty() const override { return false; }
+    void saveState() override {}
+    void restoreState() override {}
+    void beginTransparencyLayer (float) override {}
+    void endTransparencyLayer() override {}
+    void setFill (const juce::FillType&) override {}
+    void setOpacity (float) override {}
+    void setInterpolationQuality (juce::Graphics::ResamplingQuality) override {}
+    void fillRect (const juce::Rectangle<int>&, bool) override {}
+    void fillRect (const juce::Rectangle<float>&) override {}
+    void fillRectList (const juce::RectangleList<float>&) override {}
+    void fillPath (const juce::Path& p, const juce::AffineTransform& t) override
+    {
+        paths.push_back (p.getBoundsTransformed (t));
+    }
+    void fillRoundedRectangle (const juce::Rectangle<float>&, float) override {}   // the background
+    void drawImage (const juce::Image&, const juce::AffineTransform&) override {}
+    void drawLine (const juce::Line<float>& l) override
+    {
+        paths.push_back (juce::Rectangle<float>::leftTopRightBottom (l.getStartX(), l.getStartY(),
+                                                                     l.getEndX(), l.getEndY()));
+    }
+    void setFont (const juce::Font& f) override { font_ = f; }
+    const juce::Font& getFont() override { return font_; }
+    void drawGlyphs (juce::Span<const uint16_t>, juce::Span<const juce::Point<float>>,
+                     const juce::AffineTransform&) override {}
+    std::unique_ptr<juce::ImageType> getPreferredImageTypeForTemporaryImages() const override
+    {
+        return std::make_unique<juce::SoftwareImageType>();
+    }
+    uint64_t getFrameId() const override { return 0; }
+
+private:
+    juce::Font font_ { juce::FontOptions {} };
+};
+
+static std::vector<juce::Rectangle<float>> render (LevelHistory& h)
+{
+    RecordingContext ctx;
+    juce::Graphics g (ctx);
+    h.paint (g);
+    return ctx.paths;
+}
+
+//==============================================================================
+// The documented dB→y map: paint() insets the background by 1 px, then maps [minDb..maxDb] onto
+// [bottom..top] affinely.
+static float dbToY (float db, float minDb, float maxDb)
+{
+    const float top = 1.0f, bottom = (float) kH - 1.0f;
+    return juce::jmap (juce::jlimit (minDb, maxDb, db), minDb, maxDb, bottom, top);
+}
+
+static float gain (float db) { return juce::Decibels::decibelsToGain (db); }
+static bool  near (float a, float b, float eps) { return std::abs (a - b) <= eps; }
+
+static constexpr float kStrokeEps = 1.0f;   // half the 1.4 px stroke + margin
+
+int main()
+{
+    juce::ScopedJuceInitialiser_GUI juceInit;
+    std::printf ("felitronics::appkit LevelHistory falsify tests\n");
+
+    // =============================================================================================
+    group ("peak-hold ballistics through peakDb(): stick 30 ticks, then 0.8 dB per tick");
+    {
+        LevelHistory h (16);
+        ok (h.peakDb() <= -119.0f, "a fresh strip reads silence");
+
+        h.push (gain (-6.0f));
+        ok (near (h.peakDb(), -6.0f, 0.01f), "one push lands the held peak exactly at its dB");
+
+        bool held = true;
+        for (int t = 1; t <= 30; ++t) { h.push (0.0f); held = held && near (h.peakDb(), -6.0f, 0.01f); }
+        ok (held, "the held peak is stationary for exactly 30 quiet ticks");
+
+        h.push (0.0f);
+        ok (near (h.peakDb(), -6.8f, 0.01f), "tick 31 is the first decay step (0.8 dB)");
+        h.push (0.0f);
+        ok (near (h.peakDb(), -7.6f, 0.01f), "decay keeps walking 0.8 dB per tick");
+
+        h.push (gain (-30.0f));
+        bool floored = false;
+        for (int t = 0; t < 200 && ! floored; ++t) { h.push (gain (-30.0f)); floored = near (h.peakDb(), -30.0f, 0.01f); }
+        ok (floored, "decay floors at the current input, never below");
+
+        h.push (gain (-3.0f));
+        ok (near (h.peakDb(), -3.0f, 0.01f), "a louder push retakes the hold instantly");
+
+        h.clear();
+        ok (h.peakDb() <= -119.0f, "clear() resets the held peak to silence");
+    }
+
+    // =============================================================================================
+    group ("trace geometry rides the affine dB→y map (no corridor: exactly one path)");
+    {
+        LevelHistory h (16);
+        h.setSize (kW, kH);
+        for (int i = 0; i < 16; ++i) h.push (gain (-18.0f));   // a flat trace at −18
+
+        const auto flat = render (h);
+        ok (flat.size() == 1, "corridor unset: the trace is the only path painted");
+        if (flat.size() == 1)
+            ok (near (flat[0].getCentreY(), dbToY (-18.0f, -60.0f, 0.0f), kStrokeEps),
+                "flat −18 dB trace strokes exactly at the default map's −18 line");
+
+        h.setRange (-36.0f, -6.0f);                            // zoom: same data, new map
+        const auto zoomed = render (h);
+        ok (zoomed.size() == 1
+                && near (zoomed[0].getCentreY(), dbToY (-18.0f, -36.0f, -6.0f), kStrokeEps),
+            "setRange only re-maps: the same trace lands on the zoomed −18 line");
+    }
+
+    // =============================================================================================
+    group ("the strip scrolls: a spike falls off after capacity pushes");
+    {
+        LevelHistory h (16);
+        h.setSize (kW, kH);
+        h.push (gain (-6.0f));                                  // the spike
+        for (int i = 0; i < 15; ++i) h.push (0.0f);
+        const auto with = render (h);
+        ok (with.size() == 1 && near (with[0].getY(), dbToY (-6.0f, -60.0f, 0.0f), kStrokeEps),
+            "while in the window, the spike is the trace's top");
+
+        h.push (0.0f);                                          // 16th quiet push evicts the spike
+        const auto without = render (h);
+        ok (without.size() == 1
+                && without[0].getY() > dbToY (-60.0f, -60.0f, 0.0f) - 2.0f * kStrokeEps,
+            "one more push scrolls the spike out — the trace flattens to the floor");
+    }
+
+    // =============================================================================================
+    group ("corridor: a valid zone adds fill + dashed thresholds; an invalid pair clears it");
+    {
+        LevelHistory h (16);
+        h.setSize (kW, kH);
+        for (int i = 0; i < 16; ++i) h.push (gain (-7.5f));     // mid-corridor trace
+
+        h.setGreenZone (-9.0f, -6.0f);
+        const auto zoned = render (h);
+        ok (zoned.size() >= 4, "zone set: gradient fill + trace + dashed thresholds all paint");
+        // the dashed thresholds paint as dash segments ON the two corridor lines
+        const float yLo = dbToY (-9.0f, -60.0f, 0.0f), yHi = dbToY (-6.0f, -60.0f, 0.0f);
+        bool loDash = false, hiDash = false;
+        for (const auto& r : zoned)
+        {
+            if (r.getWidth() < (float) kW / 2.0f)   // a dash, not the trace/fill
+            {
+                loDash = loDash || near (r.getCentreY(), yLo, 1.5f);
+                hiDash = hiDash || near (r.getCentreY(), yHi, 1.5f);
+            }
+        }
+        ok (loDash && hiDash, "dash segments sit on both corridor thresholds");
+
+        h.setGreenZone (-6.0f, -9.0f);                          // inverted ⇒ clears
+        const auto cleared = render (h);
+        ok (cleared.size() == 1, "an inverted pair clears the corridor back to the bare trace");
+
+        h.setGreenZone (std::numeric_limits<float>::quiet_NaN(), -6.0f);
+        ok (render (h).size() == 1, "a NaN threshold also clears the corridor");
+    }
+
+    std::printf ("%d checks, %d failures\n%s\n", checks, failures, failures == 0 ? "ALL TESTS PASSED" : "FAILED");
+    return failures == 0 ? 0 : 1;
+}
