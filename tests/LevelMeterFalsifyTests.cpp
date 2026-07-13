@@ -121,6 +121,37 @@ int main()
             ok (! approx (*zoomed, *baseline, 0.5f), "valid zoom range changes the bar mapping");
     }
 
+    group ("green zone verdict — below / inside / above, boundaries inclusive, invalid clears");
+    {
+        auto verdictAt = [] (float loDb, float hiDb, float peakDb)
+        {
+            LevelMeter m; m.setSize (20, 240);
+            m.setGreenZone (loDb, hiDb);
+            m.setLevel (juce::Decibels::decibelsToGain (peakDb));       // peak-hold instant-attacks to this
+            return m.zone();
+        };
+        ok (verdictAt (-9.0f, -6.0f, -12.0f) == LevelMeter::Zone::below,  "peak under the floor reads below (won't train)");
+        ok (verdictAt (-9.0f, -6.0f,  -7.5f) == LevelMeter::Zone::inside, "peak between thresholds reads inside");
+        ok (verdictAt (-9.0f, -6.0f,  -3.0f) == LevelMeter::Zone::above,  "peak over the ceiling reads above (too hot / clip)");
+        ok (verdictAt (-9.0f, -6.0f,  -9.0f) == LevelMeter::Zone::inside, "exactly the floor is inside (inclusive)");
+        ok (verdictAt (-9.0f, -6.0f,  -6.0f) == LevelMeter::Zone::inside, "exactly the ceiling is inside (inclusive)");
+
+        LevelMeter m; m.setSize (20, 240);
+        ok (m.zone() == LevelMeter::Zone::none, "no zone set → none (default, existing consumers unaffected)");
+        m.setGreenZone (-9.0f, -6.0f);
+        m.setLevel (juce::Decibels::decibelsToGain (-7.0f));
+        ok (m.zone() == LevelMeter::Zone::inside, "a set zone reports inside");
+        const auto withZone = renderedBarY (m);
+        ok (withZone.has_value() && std::isfinite (*withZone), "paint with a zone set still renders a finite bar");
+
+        m.setGreenZone (-6.0f, -9.0f);                                  // lo >= hi
+        ok (m.zone() == LevelMeter::Zone::none, "an inverted range clears the zone back to none");
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        m.setGreenZone (-9.0f, -6.0f);
+        m.setGreenZone (nan, -6.0f);                                    // non-finite
+        ok (m.zone() == LevelMeter::Zone::none, "a non-finite threshold clears the zone");
+    }
+
     std::printf ("%d checks, %d failures\n%s\n", checks, failures, failures == 0 ? "ALL TESTS PASSED" : "FAILED");
     return failures == 0 ? 0 : 1;
 }
