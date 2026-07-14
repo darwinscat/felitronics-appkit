@@ -24,6 +24,15 @@
 #include <felitronics/appkit/UpdateChecker.h>
 #include <felitronics/appkit/VersionBadge.h>
 
+// The chrome layer — the RICH composition tier (the à-la-carte minimal tier is ChromeMinimalConsumer.cpp).
+#include <felitronics/appkit/chrome/BrandBlister.h>
+#include <felitronics/appkit/chrome/ChromeBar.h>
+#include <felitronics/appkit/chrome/ChromeMetrics.h>
+#include <felitronics/appkit/chrome/ChromeUnderline.h>
+#include <felitronics/appkit/chrome/CompareCell.h>
+#include <felitronics/appkit/chrome/FlatButtons.h>
+#include <felitronics/appkit/chrome/PresetCell.h>
+
 #include <cstdio>
 #include <cstring>
 #include <thread>
@@ -213,6 +222,75 @@ int main (int argc, char** argv)
             "perf badge stats snapshot roundtrips");
 
         auto* callout = &felitronics::appkit::launchCallOut;   (void) callout;
+    }
+
+    // Chrome layer — the RICH composition tier: brand blister + dipping underline + compare (A/B/C/D)
+    // + preset cell, all driven by a product-style ChromeTheme (designated init). Compile-gated under
+    // the recommended flags, behaviour-smoked (setModel/setActions), and the self-contained blister
+    // fill is headless-rendered. The à-la-carte minimal composition (blister-only) is a SEPARATE
+    // minimal TU (ChromeMinimalConsumer.cpp) so this one need not double as the minimality proof.
+    {
+        namespace chrome = felitronics::appkit::chrome;
+
+        struct RichMark : chrome::BlisterMark
+        {
+            int preferredContentWidth (int blisterHeight) const override { return 3 * blisterHeight; }
+            void paint (juce::Graphics& g) override
+            {
+                g.setColour (juce::Colours::white);
+                g.setFont (juce::FontOptions (14.0f));
+                g.drawText ("BRAND", getLocalBounds(), juce::Justification::centred);
+            }
+        };
+
+        const chrome::ChromeMetrics metrics {};
+        const chrome::ChromeTheme   theme { .fill       = juce::Colour (0xff0e1014),
+                                            .underline  = juce::Colour (0x12ffffff),
+                                            .accent     = juce::Colour (0xff9170ff),   // a product's OWN palette, not appkit::brand
+                                            .attention  = juce::Colour (0xffff8822),
+                                            .text       = juce::Colour (0xffd8d8d8),
+                                            .textDim    = juce::Colour (0x99ffffff),
+                                            .activeText = juce::Colours::white };
+
+        RichMark                mark;
+        chrome::BrandBlister    blister   { metrics, theme };
+        chrome::ChromeUnderline underline { blister, metrics, theme };
+        chrome::CompareCell     compare   { 4, theme };
+        chrome::PresetCell      preset    { theme };
+        blister.setMark (&mark);
+
+        int recalls = 0, menus = 0;
+        compare.setActions ({ .recall   = [&] (int)      { ++recalls; },
+                              .copy     = [&] (int, int) {},
+                              .undo     = [&]            {},
+                              .redo     = [&]            {},
+                              .showMenu = [&] (int)      { ++menus; } });
+        chrome::CompareModel cm;
+        cm.active = 1;
+        cm.canUndo = true;
+        cm.registerEdited[2] = true;
+        cm.undoLabel = "Gain";
+        compare.setModel (cm);
+
+        preset.setActions ({ .showList = [&] {} });
+        preset.setCurrentName ("Vocal Air");
+
+        ok (compare.registerCount() == 4 && preset.currentName() == "Vocal Air",
+            "chrome compare + preset cells accept a product model + actions");
+        ok (blister.preferredWidth ((int) metrics.blisterHeight) > (int) chrome::BrandBlister::kTransW,
+            "chrome blister reports a positive preferred width for a real mark");
+
+        blister.setSize (blister.preferredWidth ((int) metrics.blisterHeight), (int) metrics.blisterHeight);
+        juce::Image img (juce::Image::ARGB, blister.getWidth(), blister.getHeight(), true);
+        {
+            juce::Graphics g (img);
+            blister.paint (g);   // the bulge fill is self-contained (getLocalBounds only)
+        }
+        int painted = 0;
+        for (int y = 0; y < img.getHeight(); ++y)
+            for (int x = 0; x < img.getWidth(); ++x)
+                if (img.getPixelAt (x, y).getAlpha() > 0) ++painted;
+        ok (painted > 0, "the chrome brand blister fills its bulge headlessly");
     }
 
     {
