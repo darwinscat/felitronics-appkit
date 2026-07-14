@@ -140,6 +140,71 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
     endif()
     add_test(NAME appkit_icon_button_falsify_tests COMMAND appkit_icon_button_falsify_tests)
 
+    # Chrome layer — theory-driven falsification (headless render + pixel counts + direct gesture
+    # handlers). juce_gui_basics only, like the other GUI Falsify suites.
+    add_executable(appkit_chrome_falsify_tests tests/ChromeFalsifyTests.cpp)
+    target_link_libraries(appkit_chrome_falsify_tests PRIVATE
+        felitronics::appkit
+        juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_chrome_falsify_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_chrome_falsify_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_chrome_falsify_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_chrome_falsify_tests COMMAND appkit_chrome_falsify_tests)
+
+    # Chrome layer — the à-la-carte MINIMAL consumer: ONE chrome header first, linked against the
+    # SMALLEST module set (juce_gui_basics only), a shell with blister + underline and NO compare/
+    # preset. Proves the composition is optional and each header is self-contained.
+    add_executable(appkit_chrome_minimal_consumer tests/ChromeMinimalConsumer.cpp)
+    target_link_libraries(appkit_chrome_minimal_consumer PRIVATE
+        felitronics::appkit
+        juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_chrome_minimal_consumer PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_chrome_minimal_consumer PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_chrome_minimal_consumer PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_chrome_minimal_consumer COMMAND appkit_chrome_minimal_consumer)
+
+    # Chrome layer — per-header self-containment gate: ONE TU per public header, each including its
+    # header FIRST and ALONE, so a header that forgot an include (relying on a sibling's prelude)
+    # fails HERE rather than only when a consumer includes it first. The value is the COMPILE of each
+    # sibling TU under the consumer flag set; the executable just needs an entry point.
+    add_executable(appkit_chrome_selfcontained
+        tests/chrome_selfcontained/main.cpp
+        tests/chrome_selfcontained/ChromeMetrics.cpp
+        tests/chrome_selfcontained/ChromeBar.cpp
+        tests/chrome_selfcontained/BrandBlister.cpp
+        tests/chrome_selfcontained/ChromeUnderline.cpp
+        tests/chrome_selfcontained/FlatButtons.cpp
+        tests/chrome_selfcontained/CompareCell.cpp
+        tests/chrome_selfcontained/PresetCell.cpp)
+    target_link_libraries(appkit_chrome_selfcontained PRIVATE
+        felitronics::appkit
+        juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_chrome_selfcontained PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_chrome_selfcontained PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_chrome_selfcontained PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_chrome_selfcontained COMMAND appkit_chrome_selfcontained)
+
     add_executable(appkit_badges_falsify_tests tests/BadgesFalsifyTests.cpp)
     target_link_libraries(appkit_badges_falsify_tests PRIVATE
         felitronics::appkit
