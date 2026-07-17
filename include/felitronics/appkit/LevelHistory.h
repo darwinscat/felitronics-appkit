@@ -26,6 +26,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <utility>
@@ -77,7 +78,11 @@ public:
         head_ = (head_ + 1) % (int) hist_.size();
 
         if (db >= peakHold_) { peakHold_ = db; peakAge_ = 0; }                       // stick…
-        else if (++peakAge_ > kHoldTicks) peakHold_ = juce::jmax (db, peakHold_ - kDecayDbPerTick);   // …then walk down
+        else if (++peakAge_ > kHoldTicks)                                            // …then walk down
+        {
+            peakAge_  = kHoldTicks + 1;                                              // cap: no unbounded growth over long silence
+            peakHold_ = juce::jmax (db, peakHold_ - kDecayDbPerTick);
+        }
 
         repaint();
     }
@@ -103,8 +108,15 @@ public:
     void setNoiseFloor (float db) { noiseFloor_ = db; repaint(); }
 
     // Fixed dBFS reference lines (the calibration grid) — always drawn, never move: each (dB, colour)
-    // is a thin coloured line across the strip. Replaces the moving corridor.
-    void setRefLines (std::vector<std::pair<float, juce::Colour>> lines) { refLines_ = std::move (lines); repaint(); }
+    // is a dashed coloured line across the strip, and the trace is gradient-tinted to match. The entry
+    // order does not matter (endpoints are chosen by dB); non-finite dB entries are dropped. Takes
+    // paint precedence over the setGreenZone corridor; an empty list clears the grid.
+    void setRefLines (std::vector<std::pair<float, juce::Colour>> lines)
+    {
+        refLines_.clear();
+        for (auto& l : lines) if (std::isfinite (l.first)) refLines_.push_back (std::move (l));
+        repaint();
+    }
 
     void paint (juce::Graphics& g) override
     {
@@ -140,14 +152,21 @@ public:
         if (! refLines_.empty())
         {
             // FIXED calibration fill: one gradient under the trace (dark low → red high, through
-            // green/yellow/orange), matching the reference lines. Never changes with mode.
+            // green/yellow/orange), matching the reference lines. Endpoints are picked by dB — the
+            // lowest-dB colour at the bottom, the highest-dB colour at the top — so the entry ORDER is
+            // irrelevant (interior stops sit at each line's dB; JUCE sorts them). Never changes with mode.
+            const auto ends = std::minmax_element (refLines_.begin(), refLines_.end(),
+                                                   [] (const auto& lo, const auto& hi) { return lo.first < hi.first; });
+            const juce::Colour bottomCol = ends.first->second;    // lowest dB  → strip bottom
+            const juce::Colour topCol    = ends.second->second;   // highest dB → strip top
+
             juce::Path fill;
             fill.startNewSubPath (b.getX(), b.getBottom());
             trace (fill, b.getBottom(), false);
             fill.lineTo (b.getRight(), b.getBottom());
             fill.closeSubPath();
-            juce::ColourGradient fg (refLines_.back().second.withAlpha (0.10f), 0.0f, b.getBottom(),
-                                     refLines_.front().second.withAlpha (0.80f), 0.0f, b.getY(), false);
+            juce::ColourGradient fg (bottomCol.withAlpha (0.10f), 0.0f, b.getBottom(),
+                                     topCol.withAlpha (0.80f), 0.0f, b.getY(), false);
             for (const auto& [db, col] : refLines_) fg.addColour (fB (yOf (db)), col.withAlpha (0.42f));
             g.setGradientFill (fg);
             g.fillPath (fill);
@@ -156,8 +175,7 @@ public:
             trace (line, b.getBottom(), true);
             // Stroke in the SAME hues as the fill (dark low → red high) so the outline reads as the
             // edge of the coloured band, not a bright white-grey line on top of it.
-            juce::ColourGradient lg (refLines_.back().second, 0.0f, b.getBottom(),
-                                     refLines_.front().second, 0.0f, b.getY(), false);
+            juce::ColourGradient lg (bottomCol, 0.0f, b.getBottom(), topCol, 0.0f, b.getY(), false);
             for (const auto& [db, col] : refLines_) lg.addColour (fB (yOf (db)), col);
             g.setGradientFill (lg);
             g.strokePath (line, juce::PathStrokeType (1.6f));

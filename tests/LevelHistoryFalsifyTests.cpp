@@ -239,17 +239,31 @@ int main()
     {
         LevelHistory h (16);
         h.setSize (kW, kH);
+        // a full-height bar: narrow (≪ strip width) and ≈ the whole strip height
+        auto bars = [&] (LevelHistory& lh)
+        {
+            std::vector<juce::Rectangle<float>> out;
+            for (const auto& r : renderRects (lh))
+                if (r.getWidth() < (float) kW / 2.0f && r.getHeight() > (float) kH * 0.9f) out.push_back (r);
+            return out;
+        };
         for (int i = 0; i < 16; ++i) h.push (gain (-7.5f));    // all below a -3 ceiling
         h.setClipCeiling (-3.0f);
         ok (render (h).size() == 1, "no column over the ceiling ⇒ still just the trace path");
+        ok (bars (h).empty(), "no over-ceiling column ⇒ no red bar painted");
 
-        h.push (gain (-1.0f));                                  // one over-ceiling spike
+        h.push (gain (-1.0f));                                  // one over-ceiling spike, now the newest column
         ok (render (h).size() == 1, "the red bar is a fillRect, not a path — trace count is unchanged");
+        const auto b1 = bars (h);
+        ok (b1.size() == 1, "exactly one full-height red bar for the single over-ceiling column");
+        if (b1.size() == 1)
+            ok (near (b1[0].getCentreX(), (float) kW - 1.0f, 2.0f), "the bar sits on the newest (rightmost) column");
         // peakDb() and the trace math must be untouched by the ceiling
         ok (near (h.peakDb(), -1.0f, 0.01f), "clip ceiling does not disturb the held peak");
 
         h.setClipCeiling (std::numeric_limits<float>::quiet_NaN());
         ok (render (h).size() == 1, "clearing the ceiling is a no-op on the path set");
+        ok (bars (h).empty(), "clearing the ceiling removes the red bar");
     }
 
     // =============================================================================================
@@ -275,6 +289,31 @@ int main()
                 if (r.getWidth() < (float) kW / 2.0f && near (r.getCentreY(), y, 1.5f))
                     dashAtY = true;
             ok (dashAtY, "a dashed grid segment sits on the " + std::to_string ((int) db) + " dB reference line");
+        }
+
+        // the gradient-tinted fill must reach the strip floor — deleting the fill/stroke block would
+        // otherwise regress silently (the dashes alone don't cover it)
+        bool fillToFloor = false;
+        for (const auto& r : p)
+            if (r.getWidth() > (float) kW / 2.0f && near (r.getBottom(), (float) kH - 1.0f, 2.0f))
+                fillToFloor = true;
+        ok (fillToFloor, "grid mode fills the trace band down to the strip floor");
+
+        // order-independence (crew finding): the SAME grid passed ascending must place the dashes
+        // identically — the fix picks gradient endpoints by dB, not by vector position
+        LevelHistory h2 (16);
+        h2.setSize (kW, kH);
+        for (int i = 0; i < 16; ++i) h2.push (gain (-30.0f));
+        h2.setRefLines ({ { -15.0f, juce::Colours::green }, { -9.0f, juce::Colours::yellow },
+                          { -3.0f, juce::Colours::red } });
+        const auto pAsc = render (h2);
+        for (const float db : { -3.0f, -9.0f, -15.0f })
+        {
+            const float y = dbToY (db, -60.0f, 0.0f);
+            bool dashAtY = false;
+            for (const auto& r : pAsc)
+                if (r.getWidth() < (float) kW / 2.0f && near (r.getCentreY(), y, 1.5f)) dashAtY = true;
+            ok (dashAtY, "ascending-order grid still lands a dash at each reference dB");
         }
 
         h.setRefLines ({});

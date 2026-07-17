@@ -162,13 +162,17 @@ int main()
             m.setLevel (juce::Decibels::decibelsToGain (peakDb));
             return m.zone();
         };
-        // green band -12..-6, clip line -3 → below / inside / warn / above
-        ok (zoneAt (-12.f, -6.f, -3.f, -20.f) == LevelMeter::Zone::below,  "under the floor → below (dark)");
-        ok (zoneAt (-12.f, -6.f, -3.f,  -9.f) == LevelMeter::Zone::inside, "in the band → inside (green)");
-        ok (zoneAt (-12.f, -6.f, -3.f,  -6.f) == LevelMeter::Zone::inside, "the band top is inside (inclusive)");
-        ok (zoneAt (-12.f, -6.f, -3.f,  -4.f) == LevelMeter::Zone::warn,   "band top..clip → warn (yellow)");
-        ok (zoneAt (-12.f, -6.f, -3.f,  -3.f) == LevelMeter::Zone::warn,   "the clip line is warn (inclusive)");
-        ok (zoneAt (-12.f, -6.f, -3.f,  -1.f) == LevelMeter::Zone::above,  "over the clip line → above (red)");
+        // green band -12..-6, clip line -3 → below / inside / warn / above. Probe just OFF each
+        // boundary (±0.05 dB): an exact-boundary dB fed through decibelsToGain→gainToDecibels can flip
+        // on one ULP of libm difference across platforms, so pin the transition, not the exact edge.
+        ok (zoneAt (-12.f, -6.f, -3.f, -20.f)  == LevelMeter::Zone::below,  "under the floor → below (dark)");
+        ok (zoneAt (-12.f, -6.f, -3.f,  -9.f)  == LevelMeter::Zone::inside, "in the band → inside (green)");
+        ok (zoneAt (-12.f, -6.f, -3.f, -6.05f) == LevelMeter::Zone::inside, "just inside the band top → inside");
+        ok (zoneAt (-12.f, -6.f, -3.f, -5.95f) == LevelMeter::Zone::warn,   "just above the band top → warn");
+        ok (zoneAt (-12.f, -6.f, -3.f,  -4.f)  == LevelMeter::Zone::warn,   "band top..clip → warn (yellow)");
+        ok (zoneAt (-12.f, -6.f, -3.f, -3.05f) == LevelMeter::Zone::warn,   "just below the clip line → warn");
+        ok (zoneAt (-12.f, -6.f, -3.f, -2.95f) == LevelMeter::Zone::above,  "just above the clip line → above");
+        ok (zoneAt (-12.f, -6.f, -3.f,  -1.f)  == LevelMeter::Zone::above,  "over the clip line → above (red)");
 
         // clearing the ceiling reverts to two zones: everything above the band is `above`
         LevelMeter m; m.setSize (20, 240);

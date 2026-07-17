@@ -74,8 +74,9 @@ public:
     }
 
     // The "too hot" line (dBFS): green-band top → this reads YELLOW (hot but safe), and above it reads
-    // clip-RED. A non-finite value CLEARS it — then everything above the green band is red (the old
-    // two-zone behaviour), so consumers that only set a green zone are unaffected.
+    // clip-RED. Set it ABOVE the green band; a value at or below the band top yields the old two-zone
+    // behaviour (no yellow warn band). A non-finite value CLEARS it — then everything above the green
+    // band is red (the old two-zone behaviour), so consumers that only set a green zone are unaffected.
     void setClipCeiling (float ceilDb)
     {
         clipDb_ = ceilDb;
@@ -92,8 +93,14 @@ public:
     std::function<void()> onClipClick;
     void mouseDown (const juce::MouseEvent&) override { if (onClipClick) onClipClick(); }
 
-    // Fixed dBFS reference ticks (the calibration grid) — always drawn, never move.
-    void setRefLines (std::vector<std::pair<float, juce::Colour>> lines) { refLines_ = std::move (lines); repaint(); }
+    // Fixed dBFS reference ticks (the calibration grid) — always drawn, never move. Non-finite dB
+    // entries are dropped (they would corrupt the top gradient stop / trip a debug assert).
+    void setRefLines (std::vector<std::pair<float, juce::Colour>> lines)
+    {
+        refLines_.clear();
+        for (auto& l : lines) if (std::isfinite (l.first)) refLines_.push_back (std::move (l));
+        repaint();
+    }
 
     enum class Zone { none, below, inside, warn, above };
 
@@ -189,8 +196,13 @@ public:
         }
 
         // Clip cap: the top strip doubles as the (clickable) clip lamp — red when latched, else dim.
-        g.setColour (clipLatched_ ? juce::Colour (0xffff5544) : juce::Colour (0xff3a3a42));
-        g.fillRect (r.withHeight (5.0f).reduced (1.0f, 0.0f));
+        // Painted only once the clip-lamp feature is engaged (a latch, or a wired onClipClick handler),
+        // so meters that never use it keep their full bar — existing consumers stay unaffected.
+        if (clipLatched_ || onClipClick != nullptr)
+        {
+            g.setColour (clipLatched_ ? juce::Colour (0xffff5544) : juce::Colour (0xff3a3a42));
+            g.fillRect (r.withHeight (5.0f).reduced (1.0f, 0.0f));
+        }
     }
 
 private:
