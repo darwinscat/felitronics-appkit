@@ -152,6 +152,33 @@ int main()
         ok (m.zone() == LevelMeter::Zone::none, "a non-finite threshold clears the zone");
     }
 
+    group ("clip ceiling opens a yellow (warn) band between the green top and the clip line");
+    {
+        auto zoneAt = [] (float loDb, float hiDb, float clipDb, float peakDb)
+        {
+            LevelMeter m; m.setSize (20, 240);
+            m.setGreenZone (loDb, hiDb);
+            m.setClipCeiling (clipDb);
+            m.setLevel (juce::Decibels::decibelsToGain (peakDb));
+            return m.zone();
+        };
+        // green band -12..-6, clip line -3 → below / inside / warn / above
+        ok (zoneAt (-12.f, -6.f, -3.f, -20.f) == LevelMeter::Zone::below,  "under the floor → below (dark)");
+        ok (zoneAt (-12.f, -6.f, -3.f,  -9.f) == LevelMeter::Zone::inside, "in the band → inside (green)");
+        ok (zoneAt (-12.f, -6.f, -3.f,  -6.f) == LevelMeter::Zone::inside, "the band top is inside (inclusive)");
+        ok (zoneAt (-12.f, -6.f, -3.f,  -4.f) == LevelMeter::Zone::warn,   "band top..clip → warn (yellow)");
+        ok (zoneAt (-12.f, -6.f, -3.f,  -3.f) == LevelMeter::Zone::warn,   "the clip line is warn (inclusive)");
+        ok (zoneAt (-12.f, -6.f, -3.f,  -1.f) == LevelMeter::Zone::above,  "over the clip line → above (red)");
+
+        // clearing the ceiling reverts to two zones: everything above the band is `above`
+        LevelMeter m; m.setSize (20, 240);
+        m.setGreenZone (-12.f, -6.f);
+        m.setClipCeiling (-3.f);
+        m.setClipCeiling (std::numeric_limits<float>::quiet_NaN());
+        m.setLevel (juce::Decibels::decibelsToGain (-4.f));
+        ok (m.zone() == LevelMeter::Zone::above, "no clip set → above the band is `above` (old behaviour)");
+    }
+
     std::printf ("%d checks, %d failures\n%s\n", checks, failures, failures == 0 ? "ALL TESTS PASSED" : "FAILED");
     return failures == 0 ? 0 : 1;
 }

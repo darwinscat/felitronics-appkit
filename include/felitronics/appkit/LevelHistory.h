@@ -21,6 +21,7 @@
 
 #include <cmath>
 #include <limits>
+#include <utility>
 #include <vector>
 
 namespace felitronics::appkit
@@ -86,6 +87,17 @@ public:
     // The held peak (dBFS) — the stable read for a readout or a shared calibration verdict.
     float peakDb() const { return peakHold_; }
 
+    // The instant return level (dBFS) shown big + centred over the strip. Set from the GUI timer.
+    void setCurrentDb (float db) { if (std::abs (db - curDb_) > 0.05f) { curDb_ = db; repaint(); } }
+
+    // A fixed reference line (dBFS) — the noise-floor threshold to calibrate the room against with the
+    // tone off. Drawn as a black line across the strip; a non-finite value hides it.
+    void setNoiseFloor (float db) { noiseFloor_ = db; repaint(); }
+
+    // Fixed dBFS reference lines (the calibration grid) — always drawn, never move: each (dB, colour)
+    // is a thin coloured line across the strip. Replaces the moving corridor.
+    void setRefLines (std::vector<std::pair<float, juce::Colour>> lines) { refLines_ = std::move (lines); repaint(); }
+
     void paint (juce::Graphics& g) override
     {
         auto b = getLocalBounds().toFloat();
@@ -98,66 +110,134 @@ public:
         {
             return juce::jmap (juce::jlimit (minDb_, maxDb_, db), minDb_, maxDb_, b.getBottom(), b.getY());
         };
-        auto trace = [&] (juce::Path& p, float clampY)   // oldest → newest, left → right
+        // openSubpath=true: this path is fresh, so vertex 0 opens the subpath and the rest extend it.
+        // false: the caller pre-seeded a corner (the fill), so EVERY vertex is a lineTo — opening a
+        // new subpath here would orphan that corner. Note we must key off i==0, NOT p.isEmpty():
+        // Path::isEmpty() skips lone move markers, so after startNewSubPath it stays true until the
+        // first lineTo — using it would turn every vertex into a move and collapse the trace to
+        // nothing (no line/fill drawn at all).
+        auto trace = [&] (juce::Path& p, float clampY, bool openSubpath)   // oldest → newest, left → right
         {
             for (int i = 0; i < n; ++i)
             {
                 const float x = b.getX() + (float) i / (float) (n - 1) * b.getWidth();
                 const float y = juce::jmin (yOf (hist_[(size_t) ((head_ + i) % n)]), clampY);
-                if (i == 0) p.startNewSubPath (x, y); else p.lineTo (x, y);
+                if (openSubpath && i == 0) p.startNewSubPath (x, y); else p.lineTo (x, y);
             }
         };
         const juce::Colour grey (0xff8a8f98), green (0xff33d13f), red (0xffe0402e);
+        const float h = juce::jmax (1.0f, b.getBottom() - b.getY());
+        auto fB = [&] (float y) { return juce::jlimit (0.001, 0.999, (double) ((b.getBottom() - y) / h)); };
 
-        if (hasZone())
+        if (! refLines_.empty())
         {
-            const float yGreen = yOf (zoneLo_), yRed = yOf (zoneHi_);
-            // colour anchors ride the corridor: fade in from lo−11, full green by lo+3,
-            // hold to hi−3, full red by hi+3 (MicHistory's −32/−18/−12/−6 around −21/−9)
-            const float yGA = yOf (zoneLo_ - 11.0f), yG1 = yOf (zoneLo_ + 3.0f);
-            const float yR0 = yOf (zoneHi_ - 3.0f),  yR1 = yOf (zoneHi_ + 3.0f);
-            const float h = juce::jmax (1.0f, b.getBottom() - b.getY());
-            auto fB = [&] (float y) { return juce::jlimit (0.001, 0.999, (double) ((b.getBottom() - y) / h)); };
-
-            // fill only where the trace rises above the fade-in floor
+            // FIXED calibration fill: one gradient under the trace (dark low → red high, through
+            // green/yellow/orange), matching the reference lines. Never changes with mode.
             juce::Path fill;
-            fill.startNewSubPath (b.getX(), yGA);
-            trace (fill, yGA);
-            fill.lineTo (b.getRight(), yGA);
+            fill.startNewSubPath (b.getX(), b.getBottom());
+            trace (fill, b.getBottom(), false);
+            fill.lineTo (b.getRight(), b.getBottom());
             fill.closeSubPath();
-            juce::ColourGradient fg (green.withAlpha (0.05f), 0.0f, b.getBottom(),
-                                     red.withAlpha (0.82f), 0.0f, b.getY(), false);
-            fg.addColour (fB (yGA), green.withAlpha (0.06f));
-            fg.addColour (fB (yGreen), green.withAlpha (0.28f));
-            fg.addColour (fB (yG1), green.withAlpha (0.50f));
-            fg.addColour (fB (yR0), green.withAlpha (0.50f));
-            fg.addColour (fB (yR1), red.withAlpha (0.80f));
+            juce::ColourGradient fg (refLines_.back().second.withAlpha (0.10f), 0.0f, b.getBottom(),
+                                     refLines_.front().second.withAlpha (0.80f), 0.0f, b.getY(), false);
+            for (const auto& [db, col] : refLines_) fg.addColour (fB (yOf (db)), col.withAlpha (0.42f));
             g.setGradientFill (fg);
             g.fillPath (fill);
 
             juce::Path line;
-            trace (line, b.getBottom());
+            trace (line, b.getBottom(), true);
+            // Stroke in the SAME hues as the fill (dark low → red high) so the outline reads as the
+            // edge of the coloured band, not a bright white-grey line on top of it.
+            juce::ColourGradient lg (refLines_.back().second, 0.0f, b.getBottom(),
+                                     refLines_.front().second, 0.0f, b.getY(), false);
+            for (const auto& [db, col] : refLines_) lg.addColour (fB (yOf (db)), col);
+            g.setGradientFill (lg);
+            g.strokePath (line, juce::PathStrokeType (1.6f));
+        }
+        else if (hasZone())
+        {
+            const juce::Colour amber (0xfff5c57a);
+            // zoneLo_..zoneHi_ is the GREEN band; clipCeiling_ (when above zoneHi_) opens a YELLOW band
+            // up to it, red beyond. No clip / clip ≤ band-top ⇒ the old green→red-at-band-top strip.
+            const bool  hasYellow = std::isfinite (clipCeiling_) && clipCeiling_ > zoneHi_;
+            const float yLo   = yOf (zoneLo_);                            // floor → green dashed line
+            const float yMid  = yOf (zoneHi_);                            // green→yellow → amber line
+            const float yClip = hasYellow ? yOf (clipCeiling_) : yMid;    // yellow→red → red dashed line
+            const float yGA   = yOf (zoneLo_ - 11.0f);                    // grey fade-in floor
+            const float yG1   = yOf (juce::jmin (zoneLo_ + 3.0f, zoneHi_));   // full green just inside
+            const float yYel  = hasYellow ? yOf ((zoneHi_ + clipCeiling_) * 0.5f) : yMid;   // mid-yellow
+            const float yR1   = yOf ((hasYellow ? clipCeiling_ : zoneHi_) + 3.0f);          // full red
+
+            // fill only where the trace rises above the fade-in floor
+            juce::Path fill;
+            fill.startNewSubPath (b.getX(), yGA);
+            trace (fill, yGA, false);              // continue the pre-seeded corner
+            fill.lineTo (b.getRight(), yGA);
+            fill.closeSubPath();
+            juce::ColourGradient fg (green.withAlpha (0.05f), 0.0f, b.getBottom(),
+                                     red.withAlpha (0.82f), 0.0f, b.getY(), false);
+            fg.addColour (fB (yGA),  green.withAlpha (0.06f));
+            fg.addColour (fB (yLo),  green.withAlpha (0.30f));
+            fg.addColour (fB (yMid), green.withAlpha (0.48f));
+            if (hasYellow) {
+                fg.addColour (fB (yYel),  amber.withAlpha (0.55f));
+                fg.addColour (fB (yClip), amber.withAlpha (0.62f));
+            }
+            fg.addColour (fB (yR1),  red.withAlpha (0.80f));
+            g.setGradientFill (fg);
+            g.fillPath (fill);
+
+            juce::Path line;
+            trace (line, b.getBottom(), true);
             juce::ColourGradient lg (grey, 0.0f, b.getBottom(), red, 0.0f, b.getY(), false);
-            lg.addColour (fB (yGA), grey);
-            lg.addColour (fB (yGreen), grey.interpolatedWith (green, 0.5f));
-            lg.addColour (fB (yG1), green);
-            lg.addColour (fB (yR0), green);
-            lg.addColour (fB (yR1), red);
+            lg.addColour (fB (yGA),  grey);
+            lg.addColour (fB (yLo),  grey.interpolatedWith (green, 0.5f));
+            lg.addColour (fB (yG1),  green);
+            lg.addColour (fB (yMid), green);
+            if (hasYellow) {
+                lg.addColour (fB (yYel),  amber);
+                lg.addColour (fB (yClip), amber);
+            }
+            lg.addColour (fB (yR1),  red);
             g.setGradientFill (lg);
             g.strokePath (line, juce::PathStrokeType (1.4f));
 
             const float dashes[] = { 5.0f, 4.0f };
             g.setColour (juce::Colours::limegreen.withAlpha (0.85f));
-            g.drawDashedLine (juce::Line<float> (b.getX(), yGreen, b.getRight(), yGreen), dashes, 2, 1.2f);
+            g.drawDashedLine (juce::Line<float> (b.getX(), yLo, b.getRight(), yLo), dashes, 2, 1.2f);
+            if (hasYellow) {
+                g.setColour (amber.withAlpha (0.9f));
+                g.drawDashedLine (juce::Line<float> (b.getX(), yMid, b.getRight(), yMid), dashes, 2, 1.2f);
+            }
             g.setColour (juce::Colours::red.withAlpha (0.85f));
-            g.drawDashedLine (juce::Line<float> (b.getX(), yRed, b.getRight(), yRed), dashes, 2, 1.2f);
+            g.drawDashedLine (juce::Line<float> (b.getX(), yClip, b.getRight(), yClip), dashes, 2, 1.2f);
         }
         else
         {
             juce::Path line;
-            trace (line, b.getBottom());
+            trace (line, b.getBottom(), true);
             g.setColour (grey);
             g.strokePath (line, juce::PathStrokeType (1.4f));
+        }
+
+        // Fixed calibration grid: DASHED coloured reference lines at their dBFS, always in the same place.
+        const float refDash[] = { 5.0f, 4.0f };
+        for (const auto& [db, col] : refLines_)
+        {
+            const float y = yOf (db);
+            g.setColour (col.withAlpha (0.85f));
+            g.drawDashedLine (juce::Line<float> (b.getX(), y, b.getRight(), y), refDash, 2, 1.2f);
+        }
+
+        // Noise-floor reference: a black line across the strip (with a faint light edge so it reads on
+        // the dark background) — calibrate the room's quiet against it with the tone off.
+        if (std::isfinite (noiseFloor_))
+        {
+            const float y = yOf (noiseFloor_);
+            g.setColour (juce::Colours::white.withAlpha (0.18f));
+            g.fillRect (b.getX(), y - 1.5f, b.getWidth(), 3.0f);
+            g.setColour (juce::Colours::black);
+            g.fillRect (b.getX(), y - 0.75f, b.getWidth(), 1.5f);
         }
 
         // Hard-ceiling overloads: full-height red bars for every column that broke the ceiling — an
@@ -173,12 +253,18 @@ public:
                 }
         }
 
-        if (peakHold_ > kSilenceDb + 0.5f && getWidth() >= 60)   // held-peak readout, top-right
+        // Current return level — in the bottom-right corner, coloured by loudness (green → yellow →
+        // orange → red as it climbs the -9/-6/-3 dBFS danger marks): the calibrator's live number.
+        if (curDb_ > kSilenceDb + 0.5f && getWidth() >= 60)
         {
-            g.setColour (hasZone() && peakHold_ > zoneHi_ ? red : juce::Colours::white);
-            g.setFont (juce::FontOptions (10.0f));
-            g.drawText (juce::String (peakHold_, 1) + " dB", getLocalBounds().reduced (4, 2),
-                        juce::Justification::topRight, false);
+            juce::Colour c (0xff33d13f);                            // green — comfortably low
+            if      (curDb_ >= -3.0f) c = juce::Colour (0xffe0402e);   // red
+            else if (curDb_ >= -6.0f) c = juce::Colour (0xffff8a3d);   // orange
+            else if (curDb_ >= -9.0f) c = juce::Colour (0xffffd54f);   // yellow
+            g.setColour (c);
+            g.setFont (juce::FontOptions ((float) juce::jlimit (18, 34, getHeight() / 6), juce::Font::bold));
+            g.drawText (juce::String (curDb_, 1) + " dB",
+                        getLocalBounds().reduced (12, 8), juce::Justification::bottomRight, false);
         }
     }
 
@@ -200,6 +286,9 @@ private:
     int   head_     = 0;
     int   peakAge_  = 0;
     float peakHold_ = kSilenceDb;
+    float curDb_    = kSilenceDb;   // instant level for the big centred overlay
+    float noiseFloor_ = std::numeric_limits<float>::quiet_NaN();   // fixed reference line; NaN = hidden
+    std::vector<std::pair<float, juce::Colour>> refLines_;         // fixed calibration grid lines
 
     // Corridor thresholds (dBFS). NaN = no corridor → plain grey trace (default).
     float zoneLo_ = std::numeric_limits<float>::quiet_NaN();

@@ -20,7 +20,10 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <cmath>
+#include <functional>
 #include <limits>
+#include <utility>
+#include <vector>
 
 namespace felitronics::appkit
 {
@@ -56,10 +59,10 @@ public:
         repaint();
     }
 
-    // Optional calibration corridor. A valid [loDb, hiDb] draws the green target band + edge lines and
-    // colours the held-peak tick by where it sits (amber below, green inside, clip-red above). A
-    // non-finite range or loDb >= hiDb CLEARS it — the meter reverts to the plain dBFS colour scale,
-    // so existing consumers that never call this are unaffected.
+    // Optional calibration corridor: the GREEN target band [loDb, hiDb]. Draws the band + edge lines
+    // and colours the held-peak tick by where it sits (dim below, green inside). A non-finite range or
+    // loDb >= hiDb CLEARS it — the meter reverts to the plain dBFS colour scale, so existing consumers
+    // that never call this are unaffected. Pair with setClipCeiling() to add a YELLOW band + red line.
     void setGreenZone (float loDb, float hiDb)
     {
         if (std::isfinite (loDb) && std::isfinite (hiDb) && loDb < hiDb) { zoneLo_ = loDb; zoneHi_ = hiDb; }
@@ -67,17 +70,41 @@ public:
         repaint();
     }
 
-    enum class Zone { none, below, inside, above };
+    // The "too hot" line (dBFS): green-band top → this reads YELLOW (hot but safe), and above it reads
+    // clip-RED. A non-finite value CLEARS it — then everything above the green band is red (the old
+    // two-zone behaviour), so consumers that only set a green zone are unaffected.
+    void setClipCeiling (float ceilDb)
+    {
+        clipDb_ = ceilDb;
+        repaint();
+    }
 
-    // Where the held peak sits relative to the green zone — the calibrator verdict. `none` when no
-    // zone is set. Uses the peak-hold (the stable read the user calibrates against), not the instant level.
+    // The clip lamp lives in the meter's top cap: setClipLatched(true) reds it; a click anywhere on
+    // the meter acknowledges it (fires onClipClick — the owner clears the latch). Purely a display +
+    // hit target; the latch state itself is owned by the consumer.
+    void setClipLatched (bool latched)
+    {
+        if (latched != clipLatched_) { clipLatched_ = latched; repaint(); }
+    }
+    std::function<void()> onClipClick;
+    void mouseDown (const juce::MouseEvent&) override { if (onClipClick) onClipClick(); }
+
+    // Fixed dBFS reference ticks (the calibration grid) — always drawn, never move.
+    void setRefLines (std::vector<std::pair<float, juce::Colour>> lines) { refLines_ = std::move (lines); repaint(); }
+
+    enum class Zone { none, below, inside, warn, above };
+
+    // Where the held peak sits: below the floor / green band / yellow (over the band, under the clip
+    // line) / red (over the clip line). `none` when no zone is set. Uses the peak-hold (the stable
+    // read the user calibrates against), not the instant level.
     Zone zone() const
     {
         if (! hasZone()) return Zone::none;
         const float pdb = peakHold > 0.0f ? juce::Decibels::gainToDecibels (peakHold) : -120.0f;
         if (pdb < zoneLo_) return Zone::below;
-        if (pdb > zoneHi_) return Zone::above;
-        return Zone::inside;
+        if (pdb <= zoneHi_) return Zone::inside;
+        if (std::isfinite (clipDb_) && pdb > clipDb_) return Zone::above;   // over the clip line → red
+        return std::isfinite (clipDb_) ? Zone::warn : Zone::above;          // no clip set ⇒ old red-above
     }
 
     void paint (juce::Graphics& g) override
@@ -102,16 +129,26 @@ public:
             g.fillRoundedRectangle (r.withTop (y).reduced (1.0f, 0.0f), 1.5f);
         }
 
-        // green target corridor (calibrator): translucent band between the two thresholds + edge lines
+        // calibration corridor: translucent green band [lo, mid], a yellow band (mid, clip] when a
+        // clip line is set, edge lines at the floor (green) and mid (amber), and a red clip line
         if (hasZone())
         {
             const float yLo = dbToY (zoneLo_);      // lower dB → nearer the bottom (larger y)
-            const float yHi = dbToY (zoneHi_);      // upper dB → nearer the top (smaller y)
+            const float yHi = dbToY (zoneHi_);      // green top / yellow start → smaller y
             g.setColour (juce::Colour (0x2f7be29a));
             g.fillRect (juce::Rectangle<float> (r.getX(), yHi, r.getWidth(), yLo - yHi));
+            if (std::isfinite (clipDb_) && clipDb_ > zoneHi_)
+            {
+                const float yClip = dbToY (clipDb_);
+                g.setColour (juce::Colour (0x2ff5c57a));                    // yellow band (mid, clip]
+                g.fillRect (juce::Rectangle<float> (r.getX(), yClip, r.getWidth(), yHi - yClip));
+                g.setColour (juce::Colour (0x99ff6b6b));                    // red clip line
+                g.fillRect (r.getX(), yClip - 0.5f, r.getWidth(), 1.0f);
+            }
             g.setColour (juce::Colour (0x887be29a));
-            g.fillRect (r.getX(), yLo - 0.5f, r.getWidth(), 1.0f);
-            g.fillRect (r.getX(), yHi - 0.5f, r.getWidth(), 1.0f);
+            g.fillRect (r.getX(), yLo - 0.5f, r.getWidth(), 1.0f);          // green floor line
+            g.setColour (juce::Colour (0x88f5c57a));
+            g.fillRect (r.getX(), yHi - 0.5f, r.getWidth(), 1.0f);          // amber green→yellow line
         }
 
         // peak-hold tick — coloured by the zone verdict when a corridor is set, else the plain scale
@@ -138,6 +175,19 @@ public:
                             juce::Justification::centred, false);
             }
         }
+
+        // Fixed calibration reference ticks at their dBFS (always in the same place), DASHED.
+        const float refDash[] = { 4.0f, 3.0f };
+        for (const auto& [rdb, col] : refLines_)
+        {
+            const float y = dbToY (rdb);
+            g.setColour (col.withAlpha (0.9f));
+            g.drawDashedLine (juce::Line<float> (r.getX(), y, r.getRight(), y), refDash, 2, 1.2f);
+        }
+
+        // Clip cap: the top strip doubles as the (clickable) clip lamp — red when latched, else dim.
+        g.setColour (clipLatched_ ? juce::Colour (0xffff5544) : juce::Colour (0xff3a3a42));
+        g.fillRect (r.withHeight (5.0f).reduced (1.0f, 0.0f));
     }
 
 private:
@@ -151,8 +201,9 @@ private:
     static juce::Colour colourForZone (Zone z)
     {
         if (z == Zone::inside) return juce::Colour (0xff7be29a);   // green — on target
+        if (z == Zone::warn)   return juce::Colour (0xfff5c57a);   // amber — hot but safe
         if (z == Zone::above)  return juce::Colour (0xffff6b6b);   // clip-red — too hot
-        return juce::Colour (0xfff5c57a);                          // amber — too low (or none)
+        return juce::Colour (0xff8a8f98);                          // dim grey — too low (or none)
     }
 
     bool hasZone() const
@@ -174,8 +225,12 @@ private:
     int   peakHoldTicks = 0;
 
     // Calibration corridor thresholds (dBFS). NaN = no zone → plain colour scale (default).
+    // zoneLo_..zoneHi_ is the green band; clipDb_ (NaN = unset) is the yellow→red line above it.
     float zoneLo_ = std::numeric_limits<float>::quiet_NaN();
     float zoneHi_ = std::numeric_limits<float>::quiet_NaN();
+    float clipDb_ = std::numeric_limits<float>::quiet_NaN();
+    bool  clipLatched_ = false;                     // top-cap clip lamp (owner sets/clears it)
+    std::vector<std::pair<float, juce::Colour>> refLines_;   // fixed calibration reference ticks
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LevelMeter)
 };
