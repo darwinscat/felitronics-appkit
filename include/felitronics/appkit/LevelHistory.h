@@ -5,15 +5,22 @@
 
 //==============================================================================
 // felitronics::appkit::LevelHistory — a scrolling peak-level history strip (dBFS), generalized from
-// OrbitCapture's per-mic MicHistory (which hard-coded the −21/−9 mic thresholds) for the family's
-// calibrators. Feed contract mirrors LevelMeter: the GUI timer calls push(linearPeak) once per tick
-// on the message thread; every push scrolls one column, so the visible window is capacityTicks over
-// the feed rate (default 600 ≈ 30 s at 20 Hz, 20 s at 30 Hz). setGreenZone(loDb, hiDb) draws the
-// calibration corridor as two dashed lines (green floor / red ceiling) and tints the trace/fill by
-// where it sits — grey in the noise, green inside, red above; a non-finite or inverted pair CLEARS
-// the corridor and the strip falls back to a plain grey trace. peakDb() exposes the held peak
-// (sticks ~1.5 s, then decays) for readouts and a shared calibration verdict; setRange() zooms the
-// dBFS window like LevelMeter. Header-only; the consumer supplies juce_audio_basics + juce_gui_basics.
+// OrbitCapture's per-mic MicHistory for the family's calibrators. Feed contract mirrors LevelMeter:
+// the GUI timer calls push(linearPeak) once per tick on the message thread; every push scrolls one
+// column, so the visible window is capacityTicks over the feed rate (default 600 ≈ 30 s at 20 Hz,
+// 20 s at 30 Hz). setRange() zooms the dBFS window like LevelMeter.
+//
+// Two optional overlays tint the trace (default is a plain grey trace):
+//   • setRefLines({(dB, colour)…}) — the FIXED calibration grid (the primary calibrator surface):
+//     dashed coloured reference lines that never move, with the trace fill/stroke gradient-tinted to
+//     match them (dark low → red high). Pair with setNoiseFloor(dB) for a black room-quiet line and
+//     setCurrentDb(dB) for a live level readout in the bottom-right corner.
+//   • setGreenZone(loDb, hiDb) — an alternate MOVING corridor: dashed green-floor / amber-ceiling
+//     lines with the trace tinted grey→green→red around them; a non-finite or inverted pair CLEARS it.
+// setClipCeiling(dB) marks a hard "too hot" line independent of the mode: every column that broke it
+// gets a full-height red bar (an overload can't hide in the trace); in corridor mode it also opens a
+// yellow band up to the line. peakDb() exposes the held peak (sticks ~1.5 s, then decays) for a
+// readout or shared verdict. Header-only; the consumer supplies juce_audio_basics + juce_gui_basics.
 //==============================================================================
 
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -87,7 +94,8 @@ public:
     // The held peak (dBFS) — the stable read for a readout or a shared calibration verdict.
     float peakDb() const { return peakHold_; }
 
-    // The instant return level (dBFS) shown big + centred over the strip. Set from the GUI timer.
+    // The instant return level (dBFS) drawn as a big readout in the bottom-right corner (coloured by
+    // loudness). Set from the GUI timer; a change under 0.05 dB is ignored to avoid churn repaints.
     void setCurrentDb (float db) { if (std::abs (db - curDb_) > 0.05f) { curDb_ = db; repaint(); } }
 
     // A fixed reference line (dBFS) — the noise-floor threshold to calibrate the room against with the

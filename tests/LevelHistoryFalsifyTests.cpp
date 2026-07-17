@@ -3,14 +3,19 @@
 
 // Falsification suite for LevelHistory.h (the scrolling peak-history strip).
 //
-// Like the LevelMeter suites we test the MATH, not pixels. Three observable surfaces:
+// Like the LevelMeter suites we test the MATH, not pixels. The observable surfaces:
 //   • peakDb() — the documented hold ballistics read directly: sticks for exactly kHoldTicks (30)
 //     quiet ticks, then walks down kDecayDbPerTick (0.8 dB) per tick, floored at the current input.
-//   • the TRACE — with no corridor set, paint() strokes exactly ONE path (the trace); a recording
+//   • the TRACE — with no overlay set, paint() strokes exactly ONE path (the trace); a recording
 //     LowLevelGraphicsContext captures its geometry, which must sit on the documented affine dB→y
 //     map (and move when setRange re-maps it).
 //   • the CORRIDOR — a valid setGreenZone adds the gradient fill + dashed threshold fills on top of
 //     the trace; an invalid pair must CLEAR it back to the single-path strip.
+//   • the REF-LINE GRID — setRefLines draws a dashed segment at each reference dB (its documented
+//     y-map); an empty grid clears them back to the bare trace.
+//   • the NOISE FLOOR — setNoiseFloor paints a full-width line (a fillRect) at its dBFS; a
+//     non-finite value hides it. (setCurrentDb draws a text-only corner readout, width-gated at ≥ 60
+//     px — not geometry the path/rect recorder can see, so it is out of scope here.)
 //
 // Registers in the FELITRONICS_APPKIT_TESTS_WITH_JUCE tier like the other paint-reading gates.
 
@@ -43,7 +48,8 @@ static constexpr int kH = 220;
 class RecordingContext final : public juce::LowLevelGraphicsContext
 {
 public:
-    std::vector<juce::Rectangle<float>> paths;
+    std::vector<juce::Rectangle<float>> paths;   // fillPath + drawLine geometry (trace, dashes)
+    std::vector<juce::Rectangle<float>> rects;    // fillRect geometry (noise-floor line, clip bars)
 
     bool isVectorDevice() const override { return true; }
     void setOrigin (juce::Point<int>) override {}
@@ -65,7 +71,7 @@ public:
     void setOpacity (float) override {}
     void setInterpolationQuality (juce::Graphics::ResamplingQuality) override {}
     void fillRect (const juce::Rectangle<int>&, bool) override {}
-    void fillRect (const juce::Rectangle<float>&) override {}
+    void fillRect (const juce::Rectangle<float>& r) override { rects.push_back (r); }
     void fillRectList (const juce::RectangleList<float>&) override {}
     void fillPath (const juce::Path& p, const juce::AffineTransform& t) override
     {
@@ -98,6 +104,16 @@ static std::vector<juce::Rectangle<float>> render (LevelHistory& h)
     juce::Graphics g (ctx);
     h.paint (g);
     return ctx.paths;
+}
+
+// The fillRect surface (noise-floor line, clip bars) — kept separate from the path recorder so the
+// trace/corridor path-count assertions stay unaffected.
+static std::vector<juce::Rectangle<float>> renderRects (LevelHistory& h)
+{
+    RecordingContext ctx;
+    juce::Graphics g (ctx);
+    h.paint (g);
+    return ctx.rects;
 }
 
 //==============================================================================
@@ -234,6 +250,56 @@ int main()
 
         h.setClipCeiling (std::numeric_limits<float>::quiet_NaN());
         ok (render (h).size() == 1, "clearing the ceiling is a no-op on the path set");
+    }
+
+    // =============================================================================================
+    group ("ref-line grid: a dashed segment paints at each reference dB; an empty grid clears them");
+    {
+        LevelHistory h (16);
+        h.setSize (kW, kH);
+        for (int i = 0; i < 16; ++i) h.push (gain (-30.0f));    // a trace to tint under the grid
+
+        const std::vector<std::pair<float, juce::Colour>> grid {
+            { -3.0f,  juce::Colours::red },
+            { -9.0f,  juce::Colours::yellow },
+            { -15.0f, juce::Colours::green },
+        };
+        h.setRefLines (grid);
+        const auto p = render (h);
+        for (const auto& [db, col] : grid)
+        {
+            juce::ignoreUnused (col);
+            const float y = dbToY (db, -60.0f, 0.0f);
+            bool dashAtY = false;
+            for (const auto& r : p)
+                if (r.getWidth() < (float) kW / 2.0f && near (r.getCentreY(), y, 1.5f))
+                    dashAtY = true;
+            ok (dashAtY, "a dashed grid segment sits on the " + std::to_string ((int) db) + " dB reference line");
+        }
+
+        h.setRefLines ({});
+        ok (render (h).size() == 1, "an empty grid clears the reference lines back to the bare trace");
+    }
+
+    // =============================================================================================
+    group ("noise floor: a full-width line (fillRect) paints at its dBFS; a non-finite value hides it");
+    {
+        LevelHistory h (16);
+        h.setSize (kW, kH);
+        for (int i = 0; i < 16; ++i) h.push (gain (-40.0f));    // trace above the −50 floor line
+        // no clip ceiling ⇒ the only fillRects are the noise-floor line
+        h.setNoiseFloor (-50.0f);
+        const float y = dbToY (-50.0f, -60.0f, 0.0f);
+        auto floorLineAtY = [&] (LevelHistory& lh)
+        {
+            for (const auto& r : renderRects (lh))
+                if (r.getWidth() > (float) kW / 2.0f && near (r.getCentreY(), y, 2.0f)) return true;
+            return false;
+        };
+        ok (floorLineAtY (h), "a full-width line paints at the −50 dBFS noise floor");
+
+        h.setNoiseFloor (std::numeric_limits<float>::quiet_NaN());
+        ok (! floorLineAtY (h), "a non-finite noise floor hides the line");
     }
 
     std::printf ("%d checks, %d failures\n%s\n", checks, failures, failures == 0 ? "ALL TESTS PASSED" : "FAILED");

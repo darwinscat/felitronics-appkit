@@ -12,7 +12,10 @@
 // constants are per-tick, tuned for a ~30 Hz timer. setRange() zooms the dBFS window (default
 // −60..+6 wide bus meter). Colours follow the family brand: green / amber / clip-red (#ff6b6b).
 // setGreenZone() overlays an adjustable target corridor and zone() reports where the held peak sits
-// — for a "turn the input gain until green" calibrator (OrbitCapture NAM per-take level set).
+// — for a "turn the input gain until green" calibrator (OrbitCapture NAM per-take level set);
+// setClipCeiling() adds a yellow warn-band + red clip line above it. setRefLines() instead draws a
+// FIXED dashed dBFS grid (the non-moving calibrator surface). The top cap doubles as a clickable clip
+// lamp — setClipLatched() reds it, onClipClick fires on acknowledge.
 // Header-only; the consumer supplies JUCE (juce_audio_basics + juce_gui_basics).
 //==============================================================================
 
