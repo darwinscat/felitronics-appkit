@@ -11,6 +11,7 @@
 #include <felitronics/appkit/Brand.h>
 #include <felitronics/appkit/BrandHeader.h>
 #include <felitronics/appkit/Download.h>
+#include <felitronics/appkit/LevelHistory.h>
 #include <felitronics/appkit/LevelMeter.h>
 #include <felitronics/appkit/IconButton.h>
 #include <felitronics/appkit/CallOut.h>
@@ -88,6 +89,24 @@ int main (int argc, char** argv)
         meter.setRange (-24.0f, 6.0f);
         for (int i = 0; i < 30; ++i) meter.setLevel (i < 3 ? 0.9f : 0.0f);   // attack, then release + hold decay
         ok (meter.getWidth() == 14 && meter.getHeight() == 120, "LevelMeter constructs and accepts levels headless");
+
+        felitronics::appkit::LevelHistory history (120);
+        history.setSize (160, 60);
+        history.setRange (-36.0f, 3.0f);
+        history.setGreenZone (-9.0f, -6.0f);
+        // the fixed calibration-grid surface the ONC per-take calibrator drives (mirrors its call set)
+        const std::vector<std::pair<float, juce::Colour>> grid {
+            { -3.0f, juce::Colour (0xffe0402e) }, { -9.0f, juce::Colour (0xffffd54f) },
+            { -15.0f, juce::Colour (0xff33d13f) },
+        };
+        history.setRefLines (grid);
+        meter.setRefLines (grid);
+        history.setNoiseFloor (-50.0f);
+        history.setCurrentDb (-8.3f);
+        for (int i = 0; i < 40; ++i) history.push (i < 3 ? 0.5f : 0.0f);     // spike, then hold + decay
+        // 0.5 ⇒ −6.02 dB; 37 quiet ticks = 30-tick hold + 7 decay steps × 0.8 dB ⇒ ≈ −11.62 dB
+        ok (history.peakDb() > -12.0f && history.peakDb() < -11.2f,
+            "LevelHistory ballistics run headless (hold + decay land at ≈ −11.6 dBFS)");
 
         const felitronics::appkit::IconButton icon (felitronics::appkit::IconButton::Kind::settings);
         ok (icon.colour == juce::Colour (0xffc0c0c8) && icon.panelColour == juce::Colour (0xff1b1b1f)
