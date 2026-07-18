@@ -28,11 +28,21 @@ public:
         int    minOutputs = 1, maxOutputs = 2;
         double forceSampleRate = 0.0;    // 0 = don't enforce
         bool   hideAdvanced = true;      // keep the rate/buffer combos away when enforcing a rate
+        bool   hideChannelSelectors = false;   // hide the Active-in/out channel lists (the app picks channels itself)
     };
+
+    // juce::AudioDeviceSelectorComponent draws a channel list only while minChannels < the device's channel
+    // count, so a min ≥ any real device suppresses both lists while still opening every channel (JUCE clamps
+    // the request to what's available). For products that expose their own channel pickers.
+    static constexpr int kHideChannels = 1 << 13;
 
     AudioSettingsPanel (juce::AudioDeviceManager& dm, Options opts)
         : dm_ (dm), opts_ (opts),
-          selector_ (dm, opts.minInputs, opts.maxInputs, opts.minOutputs, opts.maxOutputs,
+          selector_ (dm,
+                     opts.hideChannelSelectors ? kHideChannels : opts.minInputs,
+                     opts.hideChannelSelectors ? kHideChannels : opts.maxInputs,
+                     opts.hideChannelSelectors ? kHideChannels : opts.minOutputs,
+                     opts.hideChannelSelectors ? kHideChannels : opts.maxOutputs,
                      false, false, false, opts.hideAdvanced)
     {
         addAndMakeVisible (selector_);
