@@ -195,13 +195,25 @@ public:
             {
                 if ((float) mark < minDb_ || (float) mark > maxDb_) continue;   // outside the zoom window
                 const float y = dbToY ((float) mark);
-                g.setColour (mark == 0 ? juce::Colour (0x66ffffff) : juce::Colour (0x33ffffff));
-                g.drawHorizontalLine ((int) y, r.getX(), r.getRight());
+                const juce::Colour lc = mark == 0 ? juce::Colour (0x66ffffff) : juce::Colour (0x33ffffff);
                 if (getWidth() >= 24)
                 {
+                    // BREAK the line around the centred label so the number sits in a gap: "──  -66  ──"
+                    const auto s = juce::String (mark);
+                    juce::GlyphArrangement ga; ga.addLineOfText (juce::Font (juce::FontOptions (13.0f)), s, 0.0f, 0.0f);
+                    const float half = ga.getBoundingBox (0, -1, true).getWidth() * 0.5f + 6.0f;
+                    const float cx = r.getCentreX();
+                    g.setColour (lc);
+                    g.drawHorizontalLine ((int) y, r.getX(), juce::jmax (r.getX(), cx - half));
+                    g.drawHorizontalLine ((int) y, juce::jmin (r.getRight(), cx + half), r.getRight());
                     g.setColour (juce::Colour (0x99b0b0b0));
-                    g.drawText (juce::String (mark), juce::Rectangle<float> (r.getX(), y - 7.5f, r.getWidth(), 15.0f),
+                    g.drawText (s, juce::Rectangle<float> (r.getX(), y - 7.5f, r.getWidth(), 15.0f),
                                 juce::Justification::centred, false);
+                }
+                else
+                {
+                    g.setColour (lc);
+                    g.drawHorizontalLine ((int) y, r.getX(), r.getRight());
                 }
             }
 
