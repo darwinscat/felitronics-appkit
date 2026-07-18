@@ -178,16 +178,16 @@ public:
         // scale that stands in for a single big current-dB readout. Drawn under the trace.
         if (! scaleMarks_.empty())
         {
-            g.setFont (juce::FontOptions (9.0f));
+            g.setFont (juce::FontOptions (11.0f));
             for (const float m : scaleMarks_)
             {
                 if (m < minDb_ || m > maxDb_) continue;
                 const float y = yOf (m);
-                g.setColour (juce::Colours::white.withAlpha (0.08f));
+                g.setColour (juce::Colours::white.withAlpha (0.16f));
                 g.drawHorizontalLine ((int) y, b.getX(), b.getRight());
-                g.setColour (juce::Colours::white.withAlpha (0.42f));
+                g.setColour (juce::Colours::white.withAlpha (0.62f));
                 g.drawText (juce::String ((int) std::lround (m)),
-                            juce::Rectangle<float> (b.getX() + 2.0f, y - 6.0f, 32.0f, 12.0f),
+                            juce::Rectangle<float> (b.getX() + 2.0f, y - 7.0f, 36.0f, 14.0f),
                             juce::Justification::centredLeft, false);
             }
         }
@@ -295,16 +295,16 @@ public:
 
         // Fixed calibration grid: DASHED coloured reference lines at their dBFS, always in the same
         // place; a labelled line gets its dB captioned bottom-left just under it.
-        const float refDash[] = { 5.0f, 4.0f };
+        const float refDash[] = { 6.0f, 4.0f };
         for (const auto& l : refLines_)
         {
             const float y = yOf (l.db);
-            g.setColour (l.colour.withAlpha (0.85f));
-            g.drawDashedLine (juce::Line<float> (b.getX(), y, b.getRight(), y), refDash, 2, 1.2f);
+            g.setColour (l.colour.withAlpha (0.92f));
+            g.drawDashedLine (juce::Line<float> (b.getX(), y, b.getRight(), y), refDash, 2, 1.8f);
             if (l.label.isNotEmpty())
             {
-                g.setFont (juce::FontOptions (10.0f));
-                g.drawText (l.label, (int) b.getX() + 4, (int) y + 2, 60, 11,
+                g.setFont (juce::FontOptions (11.0f));
+                g.drawText (l.label, (int) b.getX() + 4, (int) y + 2, 64, 12,
                             juce::Justification::centredLeft, false);
             }
         }

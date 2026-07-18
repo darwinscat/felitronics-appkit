@@ -107,6 +107,10 @@ public:
     // carry it. 0 (default) = always draw the scale (existing consumers unchanged).
     void setTicksMinWidth (int px) { if (px != ticksMinWidth_) { ticksMinWidth_ = px; repaint(); } }
 
+    // Draw the dBFS scale ticks at a UNIFORM step (0, −step, −2·step … down to the floor) instead of the
+    // default 0/−6/−12/−24/−48 set. 0 (default) keeps the legacy marks (existing consumers unchanged).
+    void setScaleStep (int dbStep) { if (dbStep != scaleStepDb_) { scaleStepDb_ = dbStep; repaint(); } }
+
     enum class Zone { none, below, inside, warn, above };
 
     // Where the held peak sits: below the floor / green band / yellow (over the band, under the clip
@@ -179,18 +183,21 @@ public:
         // (setTicksMinWidth); a thin bar stays bare.
         if (getWidth() >= ticksMinWidth_)
         {
-            // dBFS scale: ticks at 0/−6/−12/−24/−48 + labels when the meter is wide enough
-            g.setFont (juce::FontOptions (8.0f));
-            for (const int mark : { 0, -6, -12, -24, -48 })
+            // dBFS scale ticks + labels — uniform step when set (else 0/−6/−12/−24/−48); bigger & more visible.
+            g.setFont (juce::FontOptions (10.0f));
+            std::vector<int> marks;
+            if (scaleStepDb_ > 0) for (int m = 0; (float) m >= minDb_; m -= scaleStepDb_) marks.push_back (m);
+            else                  marks = { 0, -6, -12, -24, -48 };
+            for (const int mark : marks)
             {
                 if ((float) mark < minDb_ || (float) mark > maxDb_) continue;   // outside the zoom window
                 const float y = dbToY ((float) mark);
-                g.setColour (mark == 0 ? juce::Colour (0x44ffffff) : juce::Colour (0x1effffff));
+                g.setColour (mark == 0 ? juce::Colour (0x66ffffff) : juce::Colour (0x33ffffff));
                 g.drawHorizontalLine ((int) y, r.getX(), r.getRight());
                 if (getWidth() >= 24)
                 {
-                    g.setColour (juce::Colour (0x66b0b0b0));
-                    g.drawText (juce::String (mark), juce::Rectangle<float> (r.getX(), y - 5.0f, r.getWidth(), 10.0f),
+                    g.setColour (juce::Colour (0x99b0b0b0));
+                    g.drawText (juce::String (mark), juce::Rectangle<float> (r.getX(), y - 6.0f, r.getWidth(), 12.0f),
                                 juce::Justification::centred, false);
                 }
             }
@@ -256,6 +263,7 @@ private:
     float clipDb_ = std::numeric_limits<float>::quiet_NaN();
     bool  clipLatched_ = false;                     // top-cap clip lamp (owner sets/clears it)
     int   ticksMinWidth_ = 0;                       // hide scale ticks/reflines below this width (0 = always)
+    int   scaleStepDb_   = 0;                        // uniform scale-tick step in dB (0 = legacy 0/−6/−12/−24/−48)
     std::vector<std::pair<float, juce::Colour>> refLines_;   // fixed calibration reference ticks
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LevelMeter)
