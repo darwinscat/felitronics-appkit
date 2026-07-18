@@ -22,6 +22,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -111,6 +112,11 @@ public:
     // default 0/−6/−12/−24/−48 set. 0 (default) keeps the legacy marks (existing consumers unchanged).
     void setScaleStep (int dbStep) { if (dbStep != scaleStepDb_) { scaleStepDb_ = dbStep; repaint(); } }
 
+    // Colour the level bar (and peak tick) from dB-keyed gradient stops instead of the built-in
+    // green→amber→red — pass the SAME stops as LevelHistory::setFillStops so a meter and a history strip
+    // read identical colours at identical dB. Empty (default) keeps the legacy palette.
+    void setFillStops (std::vector<std::pair<float, juce::Colour>> stops) { fillStops_ = std::move (stops); repaint(); }
+
     enum class Zone { none, below, inside, warn, above };
 
     // Where the held peak sits: below the floor / green band / yellow (over the band, under the clip
@@ -141,10 +147,7 @@ public:
         if (db > minDb_)
         {
             const float y = dbToY (db);
-            juce::ColourGradient grad (juce::Colour (0xff7be29a), r.getCentreX(), r.getBottom(),
-                                       juce::Colour (0xffff6b6b), r.getCentreX(), r.getY(), false);
-            grad.addColour (0.74, juce::Colour (0xfff5c57a));   // amber band near the top
-            g.setGradientFill (grad);
+            g.setGradientFill (barGradient (r));
             g.fillRoundedRectangle (r.withTop (y).reduced (1.0f, 0.0f), 1.5f);
         }
 
@@ -175,7 +178,7 @@ public:
         if (pdb > minDb_)
         {
             const float py = dbToY (pdb);
-            g.setColour (hasZone() ? colourForZone (zone()) : colourForDb (pdb));
+            g.setColour (hasZone() ? colourForZone (zone()) : peakColour (pdb, r));
             g.fillRect (r.getX() + 1.0f, py - 1.0f, r.getWidth() - 2.0f, 2.0f);
         }
 
@@ -238,6 +241,35 @@ private:
         return juce::Colour (0xff8a8f98);                          // dim grey — too low (or none)
     }
 
+    // The level-bar gradient: the dB-keyed fill stops (matching a LevelHistory strip) when set, else the
+    // legacy green→amber→red. Stops are placed by dB → proportion, so a given dB reads the same colour
+    // here as in the history fill even though the two components' floors differ.
+    juce::ColourGradient barGradient (juce::Rectangle<float> r) const
+    {
+        if (fillStops_.empty())
+        {
+            juce::ColourGradient grad (juce::Colour (0xff7be29a), r.getCentreX(), r.getBottom(),
+                                       juce::Colour (0xffff6b6b), r.getCentreX(), r.getY(), false);
+            grad.addColour (0.74, juce::Colour (0xfff5c57a));      // amber band near the top
+            return grad;
+        }
+        const auto ends = std::minmax_element (fillStops_.begin(), fillStops_.end(),
+                              [] (const auto& a, const auto& b) { return a.first < b.first; });
+        juce::ColourGradient grad (ends.first->second, r.getCentreX(), r.getBottom(),
+                                   ends.second->second, r.getCentreX(), r.getY(), false);
+        const float span = juce::jmax (0.001f, maxDb_ - minDb_);
+        for (const auto& s : fillStops_)
+            grad.addColour (juce::jlimit (0.001, 0.999, (double) ((s.first - minDb_) / span)), s.second);
+        return grad;
+    }
+
+    juce::Colour peakColour (float db, juce::Rectangle<float> r) const
+    {
+        if (fillStops_.empty()) return colourForDb (db);
+        const float span = juce::jmax (0.001f, maxDb_ - minDb_);
+        return barGradient (r).getColourAtPosition (juce::jlimit (0.0, 1.0, (double) ((db - minDb_) / span)));
+    }
+
     bool hasZone() const
     {
         return std::isfinite (zoneLo_) && std::isfinite (zoneHi_) && zoneLo_ < zoneHi_;
@@ -265,6 +297,7 @@ private:
     int   ticksMinWidth_ = 0;                       // hide scale ticks/reflines below this width (0 = always)
     int   scaleStepDb_   = 0;                        // uniform scale-tick step in dB (0 = legacy 0/−6/−12/−24/−48)
     std::vector<std::pair<float, juce::Colour>> refLines_;   // fixed calibration reference ticks
+    std::vector<std::pair<float, juce::Colour>> fillStops_;  // dB-keyed bar gradient (matches LevelHistory)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LevelMeter)
 };
