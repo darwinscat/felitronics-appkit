@@ -303,8 +303,8 @@ public:
             g.drawDashedLine (juce::Line<float> (b.getX(), y, b.getRight(), y), refDash, 2, 1.8f);
             if (l.label.isNotEmpty())
             {
-                g.setFont (juce::FontOptions (11.0f));
-                g.drawText (l.label, (int) b.getX() + 4, (int) y + 2, 64, 12,
+                g.setFont (juce::FontOptions (13.0f));
+                g.drawText (l.label, (int) b.getX() + 4, (int) y + 2, 74, 15,
                             juce::Justification::centredLeft, false);
             }
         }

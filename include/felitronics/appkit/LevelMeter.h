@@ -187,7 +187,7 @@ public:
         if (getWidth() >= ticksMinWidth_)
         {
             // dBFS scale ticks + labels — uniform step when set (else 0/−6/−12/−24/−48); bigger & more visible.
-            g.setFont (juce::FontOptions (10.0f));
+            g.setFont (juce::FontOptions (13.0f));
             std::vector<int> marks;
             if (scaleStepDb_ > 0) for (int m = 0; (float) m >= minDb_; m -= scaleStepDb_) marks.push_back (m);
             else                  marks = { 0, -6, -12, -24, -48 };
@@ -200,7 +200,7 @@ public:
                 if (getWidth() >= 24)
                 {
                     g.setColour (juce::Colour (0x99b0b0b0));
-                    g.drawText (juce::String (mark), juce::Rectangle<float> (r.getX(), y - 6.0f, r.getWidth(), 12.0f),
+                    g.drawText (juce::String (mark), juce::Rectangle<float> (r.getX(), y - 7.5f, r.getWidth(), 15.0f),
                                 juce::Justification::centred, false);
                 }
             }
