@@ -31,6 +31,8 @@ public:
         bool   noAdvanced = false;       // stronger: remove that button too — no rate/buffer combos at all
                                          //   (for products that force the rate AND pick channels themselves)
         bool   hideChannelSelectors = false;   // hide the Active-in/out channel lists (the app picks channels itself)
+        bool   hideInputMeter = false;   // hide the little input-level meter JUCE crams onto the Input row —
+                                         //   its reserved width becomes clean gap (the app meters input elsewhere)
     };
 
     // juce::AudioDeviceSelectorComponent draws a channel list only while minChannels < the device's channel
@@ -103,6 +105,8 @@ private:
         }
         if (opts_.noAdvanced)
             hideAdvancedButton();     // the selector rebuilds its inner panel on device changes — re-hide
+        if (opts_.hideInputMeter)
+            suppressInputMeter();     // …likewise the input-level meter
 
         if (onRateStatus)
             onRateStatus (actual, opts_.forceSampleRate <= 0.0 || sameRate (actual, opts_.forceSampleRate));
@@ -125,6 +129,29 @@ private:
                         b->setVisible (false);
                         return true;
                     }
+                if (walk (*ch)) return true;
+            }
+            return false;
+        };
+        walk (selector_);
+    }
+
+    // The input-level meter JUCE adds to the Input row is a leaf Component that also ticks as a Timer —
+    // the only such node in the selector's subtree (dropdowns/labels/buttons don't tick). Hide it; JUCE
+    // still reserves its width in the row, so the Input combo simply gains that as trailing gap.
+    void suppressInputMeter()
+    {
+        std::function<bool (juce::Component&)> walk = [&] (juce::Component& c) -> bool
+        {
+            for (auto* ch : c.getChildren())
+            {
+                if (ch->getNumChildComponents() == 0
+                    && dynamic_cast<juce::Button*> (ch) == nullptr
+                    && dynamic_cast<juce::Timer*>  (ch) != nullptr)
+                {
+                    ch->setVisible (false);
+                    return true;
+                }
                 if (walk (*ch)) return true;
             }
             return false;
