@@ -102,6 +102,11 @@ public:
         repaint();
     }
 
+    // Suppress the dBFS scale ticks + reference lines until the meter is at least this wide — a thin
+    // bar reads as a bare level indicator, and the scale only appears once it's dragged wide enough to
+    // carry it. 0 (default) = always draw the scale (existing consumers unchanged).
+    void setTicksMinWidth (int px) { if (px != ticksMinWidth_) { ticksMinWidth_ = px; repaint(); } }
+
     enum class Zone { none, below, inside, warn, above };
 
     // Where the held peak sits: below the floor / green band / yellow (over the band, under the clip
@@ -170,29 +175,34 @@ public:
             g.fillRect (r.getX() + 1.0f, py - 1.0f, r.getWidth() - 2.0f, 2.0f);
         }
 
-        // dBFS scale: ticks at 0/−6/−12/−24/−48 + labels when the meter is wide enough
-        g.setFont (juce::FontOptions (8.0f));
-        for (const int mark : { 0, -6, -12, -24, -48 })
+        // dBFS scale ticks + reference lines — only once the bar is wide enough to carry a scale
+        // (setTicksMinWidth); a thin bar stays bare.
+        if (getWidth() >= ticksMinWidth_)
         {
-            if ((float) mark < minDb_ || (float) mark > maxDb_) continue;   // outside the zoom window
-            const float y = dbToY ((float) mark);
-            g.setColour (mark == 0 ? juce::Colour (0x44ffffff) : juce::Colour (0x1effffff));
-            g.drawHorizontalLine ((int) y, r.getX(), r.getRight());
-            if (getWidth() >= 24)
+            // dBFS scale: ticks at 0/−6/−12/−24/−48 + labels when the meter is wide enough
+            g.setFont (juce::FontOptions (8.0f));
+            for (const int mark : { 0, -6, -12, -24, -48 })
             {
-                g.setColour (juce::Colour (0x66b0b0b0));
-                g.drawText (juce::String (mark), juce::Rectangle<float> (r.getX(), y - 5.0f, r.getWidth(), 10.0f),
-                            juce::Justification::centred, false);
+                if ((float) mark < minDb_ || (float) mark > maxDb_) continue;   // outside the zoom window
+                const float y = dbToY ((float) mark);
+                g.setColour (mark == 0 ? juce::Colour (0x44ffffff) : juce::Colour (0x1effffff));
+                g.drawHorizontalLine ((int) y, r.getX(), r.getRight());
+                if (getWidth() >= 24)
+                {
+                    g.setColour (juce::Colour (0x66b0b0b0));
+                    g.drawText (juce::String (mark), juce::Rectangle<float> (r.getX(), y - 5.0f, r.getWidth(), 10.0f),
+                                juce::Justification::centred, false);
+                }
             }
-        }
 
-        // Fixed calibration reference ticks at their dBFS (always in the same place), DASHED.
-        const float refDash[] = { 4.0f, 3.0f };
-        for (const auto& [rdb, col] : refLines_)
-        {
-            const float y = dbToY (rdb);
-            g.setColour (col.withAlpha (0.9f));
-            g.drawDashedLine (juce::Line<float> (r.getX(), y, r.getRight(), y), refDash, 2, 1.2f);
+            // Fixed calibration reference ticks at their dBFS (always in the same place), DASHED.
+            const float refDash[] = { 4.0f, 3.0f };
+            for (const auto& [rdb, col] : refLines_)
+            {
+                const float y = dbToY (rdb);
+                g.setColour (col.withAlpha (0.9f));
+                g.drawDashedLine (juce::Line<float> (r.getX(), y, r.getRight(), y), refDash, 2, 1.2f);
+            }
         }
 
         // Clip cap: the top strip doubles as the (clickable) clip lamp — red when latched, else dim.
@@ -245,6 +255,7 @@ private:
     float zoneHi_ = std::numeric_limits<float>::quiet_NaN();
     float clipDb_ = std::numeric_limits<float>::quiet_NaN();
     bool  clipLatched_ = false;                     // top-cap clip lamp (owner sets/clears it)
+    int   ticksMinWidth_ = 0;                       // hide scale ticks/reflines below this width (0 = always)
     std::vector<std::pair<float, juce::Colour>> refLines_;   // fixed calibration reference ticks
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LevelMeter)

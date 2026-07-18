@@ -129,6 +129,17 @@ public:
         setRefLines (std::move (rl));
     }
 
+    // A light dBFS axis: a faint gridline + small value label ("-24") at each mark, on the left edge.
+    // This is the readable scale for the strip — it stands in for a single big current-dB readout.
+    // Empty (default) draws no axis; independent of the reference lines.
+    void setScaleMarks (std::vector<float> dbs) { scaleMarks_ = std::move (dbs); repaint(); }
+
+    // Override the trace fill/stroke gradient stops INDEPENDENTLY of the dashed reference lines: each
+    // entry is (dB, colour); the gradient runs lowest-dB colour at the strip bottom → highest at the top,
+    // with a stop at each entry's dB. Lets a product tune where the trace turns green without adding a
+    // dashed line there. Empty (default) = derive the gradient from setRefLines (legacy behaviour).
+    void setFillStops (std::vector<std::pair<float, juce::Colour>> stops) { fillStops_ = std::move (stops); repaint(); }
+
     void paint (juce::Graphics& g) override
     {
         auto b = getLocalBounds().toFloat();
@@ -163,16 +174,38 @@ public:
         const float h = juce::jmax (1.0f, b.getBottom() - b.getY());
         auto fB = [&] (float y) { return juce::jlimit (0.001, 0.999, (double) ((b.getBottom() - y) / h)); };
 
-        if (! refLines_.empty())
+        // dBFS axis: a faint gridline + small value label at each mark on the left edge — the readable
+        // scale that stands in for a single big current-dB readout. Drawn under the trace.
+        if (! scaleMarks_.empty())
         {
-            // FIXED calibration fill: one gradient under the trace (dark low → red high, through
-            // green/yellow/orange), matching the reference lines. Endpoints are picked by dB — the
-            // lowest-dB colour at the bottom, the highest-dB colour at the top — so the entry ORDER is
-            // irrelevant (interior stops sit at each line's dB; JUCE sorts them). Never changes with mode.
-            const auto ends = std::minmax_element (refLines_.begin(), refLines_.end(),
-                                                   [] (const auto& lo, const auto& hi) { return lo.db < hi.db; });
-            const juce::Colour bottomCol = ends.first->colour;    // lowest dB  → strip bottom
-            const juce::Colour topCol    = ends.second->colour;   // highest dB → strip top
+            g.setFont (juce::FontOptions (9.0f));
+            for (const float m : scaleMarks_)
+            {
+                if (m < minDb_ || m > maxDb_) continue;
+                const float y = yOf (m);
+                g.setColour (juce::Colours::white.withAlpha (0.08f));
+                g.drawHorizontalLine ((int) y, b.getX(), b.getRight());
+                g.setColour (juce::Colours::white.withAlpha (0.42f));
+                g.drawText (juce::String ((int) std::lround (m)),
+                            juce::Rectangle<float> (b.getX() + 2.0f, y - 6.0f, 32.0f, 12.0f),
+                            juce::Justification::centredLeft, false);
+            }
+        }
+
+        // The fill/stroke gradient comes from setFillStops when set, else from the reference lines —
+        // so a product can tune where the trace turns green independently of which dashed lines show.
+        std::vector<std::pair<float, juce::Colour>> stops;
+        if (! fillStops_.empty()) stops = fillStops_;
+        else for (const auto& l : refLines_) stops.emplace_back (l.db, l.colour);
+
+        if (! stops.empty())
+        {
+            // Endpoints picked by dB — the lowest-dB colour at the bottom, the highest at the top — so
+            // the entry ORDER is irrelevant (interior stops sit at each dB; JUCE sorts them).
+            const auto ends = std::minmax_element (stops.begin(), stops.end(),
+                                                   [] (const auto& lo, const auto& hi) { return lo.first < hi.first; });
+            const juce::Colour bottomCol = ends.first->second;    // lowest dB  → strip bottom
+            const juce::Colour topCol    = ends.second->second;   // highest dB → strip top
 
             juce::Path fill;
             fill.startNewSubPath (b.getX(), b.getBottom());
@@ -181,16 +214,16 @@ public:
             fill.closeSubPath();
             juce::ColourGradient fg (bottomCol.withAlpha (0.10f), 0.0f, b.getBottom(),
                                      topCol.withAlpha (0.80f), 0.0f, b.getY(), false);
-            for (const auto& l : refLines_) fg.addColour (fB (yOf (l.db)), l.colour.withAlpha (0.42f));
+            for (const auto& s : stops) fg.addColour (fB (yOf (s.first)), s.second.withAlpha (0.42f));
             g.setGradientFill (fg);
             g.fillPath (fill);
 
             juce::Path line;
             trace (line, b.getBottom() + kBelowFloorPx, true);   // may dip under the floor (clipped)
-            // Stroke in the SAME hues as the fill (dark low → red high) so the outline reads as the
-            // edge of the coloured band, not a bright white-grey line on top of it.
+            // Stroke in the SAME hues as the fill (dark low → high) so the outline reads as the edge of
+            // the coloured band, not a bright white-grey line on top of it.
             juce::ColourGradient lg (bottomCol, 0.0f, b.getBottom(), topCol, 0.0f, b.getY(), false);
-            for (const auto& l : refLines_) lg.addColour (fB (yOf (l.db)), l.colour);
+            for (const auto& s : stops) lg.addColour (fB (yOf (s.first)), s.second);
             g.setGradientFill (lg);
             g.strokePath (line, juce::PathStrokeType (1.6f));
         }
@@ -344,6 +377,8 @@ private:
     float curDb_    = kSilenceDb;   // instant level for the big centred overlay
     float noiseFloor_ = std::numeric_limits<float>::quiet_NaN();   // fixed reference line; NaN = hidden
     std::vector<RefLine> refLines_;                                // fixed calibration grid lines
+    std::vector<float>   scaleMarks_;                              // light dBFS axis labels (left edge)
+    std::vector<std::pair<float, juce::Colour>> fillStops_;        // fill/stroke gradient (decoupled from lines)
 
     // Corridor thresholds (dBFS). NaN = no corridor → plain grey trace (default).
     float zoneLo_ = std::numeric_limits<float>::quiet_NaN();
