@@ -23,6 +23,8 @@
 // readout or shared verdict. Header-only; the consumer supplies juce_audio_basics + juce_gui_basics.
 //==============================================================================
 
+#include "DbGradient.h"
+
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -177,31 +179,20 @@ public:
 
         if (! stops.empty())
         {
-            // Endpoints picked by dB — the lowest-dB colour at the bottom, the highest at the top — so
-            // the entry ORDER is irrelevant (interior stops sit at each dB; JUCE sorts them).
-            const auto ends = std::minmax_element (stops.begin(), stops.end(),
-                                                   [] (const auto& lo, const auto& hi) { return lo.first < hi.first; });
-            const juce::Colour bottomCol = ends.first->second;    // lowest dB  → strip bottom
-            const juce::Colour topCol    = ends.second->second;   // highest dB → strip top
-
+            // Fill + stroke share ONE dB-keyed gradient (appkit::dbGradient): the fill fades translucent
+            // (bottom 0.10 → interior 0.42 → top 0.80), the stroke is opaque — the SAME colour per dB the
+            // meter bar reads. (fB(yOf(db)) reduces exactly to dbGradient's (db-minDb)/span.)
             juce::Path fill;
             fill.startNewSubPath (b.getX(), b.getBottom());
             trace (fill, b.getBottom(), false);
             fill.lineTo (b.getRight(), b.getBottom());
             fill.closeSubPath();
-            juce::ColourGradient fg (bottomCol.withAlpha (0.10f), 0.0f, b.getBottom(),
-                                     topCol.withAlpha (0.80f), 0.0f, b.getY(), false);
-            for (const auto& s : stops) fg.addColour (fB (yOf (s.first)), s.second.withAlpha (0.42f));
-            g.setGradientFill (fg);
+            g.setGradientFill (dbGradient (stops, minDb_, maxDb_, 0.0f, b.getY(), b.getBottom(), 0.10f, 0.80f, 0.42f));
             g.fillPath (fill);
 
             juce::Path line;
             trace (line, b.getBottom() + kBelowFloorPx, true);   // may dip under the floor (clipped)
-            // Stroke in the SAME hues as the fill (dark low → high) so the outline reads as the edge of
-            // the coloured band, not a bright white-grey line on top of it.
-            juce::ColourGradient lg (bottomCol, 0.0f, b.getBottom(), topCol, 0.0f, b.getY(), false);
-            for (const auto& s : stops) lg.addColour (fB (yOf (s.first)), s.second);
-            g.setGradientFill (lg);
+            g.setGradientFill (dbGradient (stops, minDb_, maxDb_, 0.0f, b.getY(), b.getBottom()));
             g.strokePath (line, juce::PathStrokeType (1.6f));
         }
         else if (hasZone())

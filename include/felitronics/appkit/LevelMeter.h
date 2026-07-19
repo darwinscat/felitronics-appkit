@@ -19,6 +19,8 @@
 // Header-only; the consumer supplies JUCE (juce_audio_basics + juce_gui_basics).
 //==============================================================================
 
+#include "DbGradient.h"
+
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -265,14 +267,7 @@ private:
             grad.addColour (0.74, juce::Colour (0xfff5c57a));      // amber band near the top
             return grad;
         }
-        const auto ends = std::minmax_element (fillStops_.begin(), fillStops_.end(),
-                              [] (const auto& a, const auto& b) { return a.first < b.first; });
-        juce::ColourGradient grad (ends.first->second, r.getCentreX(), r.getBottom(),
-                                   ends.second->second, r.getCentreX(), r.getY(), false);
-        const float span = juce::jmax (0.001f, maxDb_ - minDb_);
-        for (const auto& s : fillStops_)
-            grad.addColour (juce::jlimit (0.001, 0.999, (double) ((s.first - minDb_) / span)), s.second);
-        return grad;
+        return dbGradient (fillStops_, minDb_, maxDb_, r.getCentreX(), r.getY(), r.getBottom());   // opaque
     }
 
     juce::Colour peakColour (float db, juce::Rectangle<float> r) const
