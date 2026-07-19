@@ -19,9 +19,12 @@
 // Header-only; the consumer supplies JUCE (juce_audio_basics + juce_gui_basics).
 //==============================================================================
 
+#include "DbGradient.h"
+
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -102,6 +105,20 @@ public:
         repaint();
     }
 
+    // Suppress the dBFS scale ticks + reference lines until the meter is at least this wide — a thin
+    // bar reads as a bare level indicator, and the scale only appears once it's dragged wide enough to
+    // carry it. 0 (default) = always draw the scale (existing consumers unchanged).
+    void setTicksMinWidth (int px) { if (px != ticksMinWidth_) { ticksMinWidth_ = px; repaint(); } }
+
+    // Draw the dBFS scale ticks at a UNIFORM step (0, −step, −2·step … down to the floor) instead of the
+    // default 0/−6/−12/−24/−48 set. 0 (default) keeps the legacy marks (existing consumers unchanged).
+    void setScaleStep (int dbStep) { if (dbStep != scaleStepDb_) { scaleStepDb_ = dbStep; repaint(); } }
+
+    // Colour the level bar (and peak tick) from dB-keyed gradient stops instead of the built-in
+    // green→amber→red — pass the SAME stops as LevelHistory::setFillStops so a meter and a history strip
+    // read identical colours at identical dB. Empty (default) keeps the legacy palette.
+    void setFillStops (std::vector<std::pair<float, juce::Colour>> stops) { fillStops_ = std::move (stops); repaint(); }
+
     enum class Zone { none, below, inside, warn, above };
 
     // Where the held peak sits: below the floor / green band / yellow (over the band, under the clip
@@ -132,10 +149,7 @@ public:
         if (db > minDb_)
         {
             const float y = dbToY (db);
-            juce::ColourGradient grad (juce::Colour (0xff7be29a), r.getCentreX(), r.getBottom(),
-                                       juce::Colour (0xffff6b6b), r.getCentreX(), r.getY(), false);
-            grad.addColour (0.74, juce::Colour (0xfff5c57a));   // amber band near the top
-            g.setGradientFill (grad);
+            g.setGradientFill (barGradient (r));
             g.fillRoundedRectangle (r.withTop (y).reduced (1.0f, 0.0f), 1.5f);
         }
 
@@ -166,33 +180,53 @@ public:
         if (pdb > minDb_)
         {
             const float py = dbToY (pdb);
-            g.setColour (hasZone() ? colourForZone (zone()) : colourForDb (pdb));
+            g.setColour (hasZone() ? colourForZone (zone()) : peakColour (pdb, r));
             g.fillRect (r.getX() + 1.0f, py - 1.0f, r.getWidth() - 2.0f, 2.0f);
         }
 
-        // dBFS scale: ticks at 0/−6/−12/−24/−48 + labels when the meter is wide enough
-        g.setFont (juce::FontOptions (8.0f));
-        for (const int mark : { 0, -6, -12, -24, -48 })
+        // dBFS scale ticks + reference lines — only once the bar is wide enough to carry a scale
+        // (setTicksMinWidth); a thin bar stays bare.
+        if (getWidth() >= ticksMinWidth_)
         {
-            if ((float) mark < minDb_ || (float) mark > maxDb_) continue;   // outside the zoom window
-            const float y = dbToY ((float) mark);
-            g.setColour (mark == 0 ? juce::Colour (0x44ffffff) : juce::Colour (0x1effffff));
-            g.drawHorizontalLine ((int) y, r.getX(), r.getRight());
-            if (getWidth() >= 24)
+            // dBFS scale ticks + labels — uniform step when set (else 0/−6/−12/−24/−48); bigger & more visible.
+            g.setFont (juce::FontOptions (13.0f));
+            std::vector<int> marks;
+            if (scaleStepDb_ > 0) for (int m = 0; (float) m >= minDb_; m -= scaleStepDb_) marks.push_back (m);
+            else                  marks = { 0, -6, -12, -24, -48 };
+            for (const int mark : marks)
             {
-                g.setColour (juce::Colour (0x66b0b0b0));
-                g.drawText (juce::String (mark), juce::Rectangle<float> (r.getX(), y - 5.0f, r.getWidth(), 10.0f),
-                            juce::Justification::centred, false);
+                if ((float) mark < minDb_ || (float) mark > maxDb_) continue;   // outside the zoom window
+                const float y = dbToY ((float) mark);
+                const juce::Colour lc = mark == 0 ? juce::Colour (0x66ffffff) : juce::Colour (0x33ffffff);
+                if (getWidth() >= 24)
+                {
+                    // BREAK the line around the centred label so the number sits in a gap: "──  -66  ──"
+                    const auto s = juce::String (mark);
+                    juce::GlyphArrangement ga; ga.addLineOfText (juce::Font (juce::FontOptions (13.0f)), s, 0.0f, 0.0f);
+                    const float half = ga.getBoundingBox (0, -1, true).getWidth() * 0.5f + 6.0f;
+                    const float cx = r.getCentreX();
+                    g.setColour (lc);
+                    g.drawHorizontalLine ((int) y, r.getX(), juce::jmax (r.getX(), cx - half));
+                    g.drawHorizontalLine ((int) y, juce::jmin (r.getRight(), cx + half), r.getRight());
+                    g.setColour (juce::Colour (0x99b0b0b0));
+                    g.drawText (s, juce::Rectangle<float> (r.getX(), y - 7.5f, r.getWidth(), 15.0f),
+                                juce::Justification::centred, false);
+                }
+                else
+                {
+                    g.setColour (lc);
+                    g.drawHorizontalLine ((int) y, r.getX(), r.getRight());
+                }
             }
-        }
 
-        // Fixed calibration reference ticks at their dBFS (always in the same place), DASHED.
-        const float refDash[] = { 4.0f, 3.0f };
-        for (const auto& [rdb, col] : refLines_)
-        {
-            const float y = dbToY (rdb);
-            g.setColour (col.withAlpha (0.9f));
-            g.drawDashedLine (juce::Line<float> (r.getX(), y, r.getRight(), y), refDash, 2, 1.2f);
+            // Fixed calibration reference ticks at their dBFS (always in the same place), DASHED.
+            const float refDash[] = { 4.0f, 3.0f };
+            for (const auto& [rdb, col] : refLines_)
+            {
+                const float y = dbToY (rdb);
+                g.setColour (col.withAlpha (0.9f));
+                g.drawDashedLine (juce::Line<float> (r.getX(), y, r.getRight(), y), refDash, 2, 1.2f);
+            }
         }
 
         // Clip cap: the top strip doubles as the (clickable) clip lamp — red when latched, else dim.
@@ -221,6 +255,28 @@ private:
         return juce::Colour (0xff8a8f98);                          // dim grey — too low (or none)
     }
 
+    // The level-bar gradient: the dB-keyed fill stops (matching a LevelHistory strip) when set, else the
+    // legacy green→amber→red. Stops are placed by dB → proportion, so a given dB reads the same colour
+    // here as in the history fill even though the two components' floors differ.
+    juce::ColourGradient barGradient (juce::Rectangle<float> r) const
+    {
+        if (fillStops_.empty())
+        {
+            juce::ColourGradient grad (juce::Colour (0xff7be29a), r.getCentreX(), r.getBottom(),
+                                       juce::Colour (0xffff6b6b), r.getCentreX(), r.getY(), false);
+            grad.addColour (0.74, juce::Colour (0xfff5c57a));      // amber band near the top
+            return grad;
+        }
+        return dbGradient (fillStops_, minDb_, maxDb_, r.getCentreX(), r.getY(), r.getBottom());   // opaque
+    }
+
+    juce::Colour peakColour (float db, juce::Rectangle<float> r) const
+    {
+        if (fillStops_.empty()) return colourForDb (db);
+        const float span = juce::jmax (0.001f, maxDb_ - minDb_);
+        return barGradient (r).getColourAtPosition (juce::jlimit (0.0, 1.0, (double) ((db - minDb_) / span)));
+    }
+
     bool hasZone() const
     {
         return std::isfinite (zoneLo_) && std::isfinite (zoneHi_) && zoneLo_ < zoneHi_;
@@ -245,7 +301,10 @@ private:
     float zoneHi_ = std::numeric_limits<float>::quiet_NaN();
     float clipDb_ = std::numeric_limits<float>::quiet_NaN();
     bool  clipLatched_ = false;                     // top-cap clip lamp (owner sets/clears it)
+    int   ticksMinWidth_ = 0;                       // hide scale ticks/reflines below this width (0 = always)
+    int   scaleStepDb_   = 0;                        // uniform scale-tick step in dB (0 = legacy 0/−6/−12/−24/−48)
     std::vector<std::pair<float, juce::Colour>> refLines_;   // fixed calibration reference ticks
+    std::vector<std::pair<float, juce::Colour>> fillStops_;  // dB-keyed bar gradient (matches LevelHistory)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LevelMeter)
 };
