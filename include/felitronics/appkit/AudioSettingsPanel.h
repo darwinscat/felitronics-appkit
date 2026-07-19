@@ -27,12 +27,26 @@ public:
         int    minInputs = 1, maxInputs = 32;
         int    minOutputs = 1, maxOutputs = 2;
         double forceSampleRate = 0.0;    // 0 = don't enforce
-        bool   hideAdvanced = true;      // keep the rate/buffer combos away when enforcing a rate
+        bool   hideAdvanced = true;      // keep the rate/buffer combos behind the "Show advanced…" button
+        bool   noAdvanced = false;       // stronger: remove that button too — no rate/buffer combos at all
+                                         //   (for products that force the rate AND pick channels themselves)
+        bool   hideChannelSelectors = false;   // hide the Active-in/out channel lists (the app picks channels itself)
+        bool   hideInputMeter = false;   // hide the little input-level meter JUCE crams onto the Input row —
+                                         //   its reserved width becomes clean gap (the app meters input elsewhere)
     };
+
+    // juce::AudioDeviceSelectorComponent draws a channel list only while minChannels < the device's channel
+    // count, so a min ≥ any real device suppresses both lists while still opening every channel (JUCE clamps
+    // the request to what's available). For products that expose their own channel pickers.
+    static constexpr int kHideChannels = 1 << 13;
 
     AudioSettingsPanel (juce::AudioDeviceManager& dm, Options opts)
         : dm_ (dm), opts_ (opts),
-          selector_ (dm, opts.minInputs, opts.maxInputs, opts.minOutputs, opts.maxOutputs,
+          selector_ (dm,
+                     opts.hideChannelSelectors ? kHideChannels : opts.minInputs,
+                     opts.hideChannelSelectors ? kHideChannels : opts.maxInputs,
+                     opts.hideChannelSelectors ? kHideChannels : opts.minOutputs,
+                     opts.hideChannelSelectors ? kHideChannels : opts.maxOutputs,
                      false, false, false, opts.hideAdvanced)
     {
         addAndMakeVisible (selector_);
@@ -89,8 +103,60 @@ private:
                     actual = d2->getCurrentSampleRate();                  // … so re-read the truth
             }
         }
+        if (opts_.noAdvanced)
+            hideAdvancedButton();     // the selector rebuilds its inner panel on device changes — re-hide
+        if (opts_.hideInputMeter)
+            suppressInputMeter();     // …likewise the input-level meter
+
         if (onRateStatus)
             onRateStatus (actual, opts_.forceSampleRate <= 0.0 || sameRate (actual, opts_.forceSampleRate));
+    }
+
+    // The stock AudioDeviceSelectorComponent has no "no advanced" mode — only "behind a button". The
+    // advanced button is the ONLY clicking-toggles button in the whole selector subtree (Test / Control
+    // Panel / Reset don't toggle), so we find it by that property (locale-proof) and hide it; with it
+    // hidden and un-toggled the rate/buffer combos never lay out. Re-run after every rebuild.
+    void hideAdvancedButton()
+    {
+        std::function<bool (juce::Component&)> walk = [&] (juce::Component& c) -> bool
+        {
+            for (auto* ch : c.getChildren())
+            {
+                if (auto* b = dynamic_cast<juce::Button*> (ch))
+                    if (b->getClickingTogglesState())
+                    {
+                        b->setToggleState (false, juce::dontSendNotification);
+                        b->setVisible (false);
+                        return true;
+                    }
+                if (walk (*ch)) return true;
+            }
+            return false;
+        };
+        walk (selector_);
+    }
+
+    // The input-level meter JUCE adds to the Input row is a leaf Component that also ticks as a Timer —
+    // the only such node in the selector's subtree (dropdowns/labels/buttons don't tick). Hide it; JUCE
+    // still reserves its width in the row, so the Input combo simply gains that as trailing gap.
+    void suppressInputMeter()
+    {
+        std::function<bool (juce::Component&)> walk = [&] (juce::Component& c) -> bool
+        {
+            for (auto* ch : c.getChildren())
+            {
+                if (ch->getNumChildComponents() == 0
+                    && dynamic_cast<juce::Button*> (ch) == nullptr
+                    && dynamic_cast<juce::Timer*>  (ch) != nullptr)
+                {
+                    ch->setVisible (false);
+                    return true;
+                }
+                if (walk (*ch)) return true;
+            }
+            return false;
+        };
+        walk (selector_);
     }
 
     juce::AudioDeviceManager& dm_;
