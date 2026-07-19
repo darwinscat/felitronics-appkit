@@ -129,11 +129,6 @@ public:
         setRefLines (std::move (rl));
     }
 
-    // A light dBFS axis: a faint gridline + small value label ("-24") at each mark, on the left edge.
-    // This is the readable scale for the strip — it stands in for a single big current-dB readout.
-    // Empty (default) draws no axis; independent of the reference lines.
-    void setScaleMarks (std::vector<float> dbs) { scaleMarks_ = std::move (dbs); repaint(); }
-
     // Override the trace fill/stroke gradient stops INDEPENDENTLY of the dashed reference lines: each
     // entry is (dB, colour); the gradient runs lowest-dB colour at the strip bottom → highest at the top,
     // with a stop at each entry's dB. Lets a product tune where the trace turns green without adding a
@@ -173,24 +168,6 @@ public:
         const juce::Colour grey (0xff8a8f98), green (0xff33d13f), red (0xffe0402e);
         const float h = juce::jmax (1.0f, b.getBottom() - b.getY());
         auto fB = [&] (float y) { return juce::jlimit (0.001, 0.999, (double) ((b.getBottom() - y) / h)); };
-
-        // dBFS axis: a faint gridline + small value label at each mark on the left edge — the readable
-        // scale that stands in for a single big current-dB readout. Drawn under the trace.
-        if (! scaleMarks_.empty())
-        {
-            g.setFont (juce::FontOptions (11.0f));
-            for (const float m : scaleMarks_)
-            {
-                if (m < minDb_ || m > maxDb_) continue;
-                const float y = yOf (m);
-                g.setColour (juce::Colours::white.withAlpha (0.16f));
-                g.drawHorizontalLine ((int) y, b.getX(), b.getRight());
-                g.setColour (juce::Colours::white.withAlpha (0.62f));
-                g.drawText (juce::String ((int) std::lround (m)),
-                            juce::Rectangle<float> (b.getX() + 2.0f, y - 7.0f, 36.0f, 14.0f),
-                            juce::Justification::centredLeft, false);
-            }
-        }
 
         // The fill/stroke gradient comes from setFillStops when set, else from the reference lines —
         // so a product can tune where the trace turns green independently of which dashed lines show.
@@ -377,7 +354,6 @@ private:
     float curDb_    = kSilenceDb;   // instant level for the big centred overlay
     float noiseFloor_ = std::numeric_limits<float>::quiet_NaN();   // fixed reference line; NaN = hidden
     std::vector<RefLine> refLines_;                                // fixed calibration grid lines
-    std::vector<float>   scaleMarks_;                              // light dBFS axis labels (left edge)
     std::vector<std::pair<float, juce::Colour>> fillStops_;        // fill/stroke gradient (decoupled from lines)
 
     // Corridor thresholds (dBFS). NaN = no corridor → plain grey trace (default).
