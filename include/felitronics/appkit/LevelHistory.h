@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <initializer_list>
 #include <limits>
 #include <utility>
 #include <vector>
@@ -114,7 +115,7 @@ public:
     // order does not matter (endpoints are chosen by dB); non-finite dB entries are dropped. Takes
     // paint precedence over the setGreenZone corridor; an empty list clears the grid. A non-empty
     // label is captioned bottom-left UNDER the line ("-15 dB") in the line's colour.
-    struct RefLine { float db {}; juce::Colour colour; juce::String label; };
+    struct RefLine { float db {}; juce::Colour colour {}; juce::String label {}; };   // defaults: a terse {dB, colour} entry omits the label warning-clean
 
     void setRefLines (std::vector<RefLine> lines)
     {
@@ -130,6 +131,12 @@ public:
         for (auto& l : lines) rl.push_back ({ l.first, l.second, {} });
         setRefLines (std::move (rl));
     }
+
+    // A braced call — setRefLines({{-15.0f, colour}, …}) or setRefLines({}) — is otherwise ambiguous
+    // between the two vector overloads above (each inner {dB, colour} initializes a RefLine OR a pair
+    // equally). An initializer_list overload wins that list-initialization, so the terse form this
+    // header documents stays legal; it forwards to the labelled overload with empty labels.
+    void setRefLines (std::initializer_list<RefLine> lines) { setRefLines (std::vector<RefLine> (lines)); }
 
     // Override the trace fill/stroke gradient stops INDEPENDENTLY of the dashed reference lines: each
     // entry is (dB, colour); the gradient runs lowest-dB colour at the strip bottom → highest at the top,
