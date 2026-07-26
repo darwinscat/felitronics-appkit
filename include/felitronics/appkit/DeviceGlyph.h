@@ -12,7 +12,8 @@
 
 //==============================================================================
 // felitronics::appkit — schematic glyphs for a preamp's active device: a triode (tube), a bipolar
-// transistor (PNP-style), a FET, a DSP chip, or a diode. Driven by the "device" spec (see
+// transistor (PNP-style), a FET, an analogue op-amp (ic), a digital chip (dsp), or a diode. Driven
+// by the "device" spec (see
 // DeviceSpec.h) so the UI shows WHAT a capture is — e.g. 4 tubes for a V4, one for a Volt, a PNP
 // for the transistor ISA, or a tube+PNP for a hybrid. Moved verbatim from OrbitCab ui/DeviceGlyph.h
 // (geometry, colours, and animation timing unchanged) when the device visuals were promoted here.
@@ -34,7 +35,39 @@ inline void drawDeviceGlyph (juce::Graphics& g, juce::Rectangle<float> r, Device
     const juce::PathStrokeType stroke (sw, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
     const float er = R * 0.82f;   // envelope radius
 
-    // DSP / IC — a chip package with legs + a pin-1 dot (no valve envelope).
+    // Analogue op-amp — the schematic triangle: two inputs into the flat side, one output from the
+    // tip, marked + and -. Deliberately NOT the chip package: the package is what an op-amp and a
+    // DSP have in COMMON, and the whole point of splitting them is to show what they don't.
+    if (type == DeviceType::ic)
+    {
+        const float w = er * 0.98f, h = er * 1.12f;
+        const float lx = cx - w * 0.45f, rx = cx + w * 0.55f;
+        juce::Path tri;
+        tri.startNewSubPath (lx, cy - h * 0.5f);
+        tri.lineTo          (rx, cy);
+        tri.lineTo          (lx, cy + h * 0.5f);
+        tri.closeSubPath();
+        g.strokePath (tri, stroke);
+
+        const float iy = h * 0.22f;   // the two inputs, off the flat side
+        juce::Path leads;
+        leads.startNewSubPath (cx - er - R * 0.34f, cy - iy); leads.lineTo (lx, cy - iy);
+        leads.startNewSubPath (cx - er - R * 0.34f, cy + iy); leads.lineTo (lx, cy + iy);
+        leads.startNewSubPath (rx, cy);                       leads.lineTo (cx + er + R * 0.34f, cy);
+        g.strokePath (leads, stroke);
+
+        // + on the non-inverting input, - on the inverting one. Tiny by design: at 20 px they read
+        // as texture that says "op-amp", and at a larger size they say exactly which input is which.
+        const float m = er * 0.17f, mx = lx + er * 0.26f;
+        juce::Path marks;
+        marks.startNewSubPath (mx - m, cy - iy); marks.lineTo (mx + m, cy - iy);   // + horizontal
+        marks.startNewSubPath (mx, cy - iy - m); marks.lineTo (mx, cy - iy + m);   // + vertical
+        marks.startNewSubPath (mx - m, cy + iy); marks.lineTo (mx + m, cy + iy);   // -
+        g.strokePath (marks, juce::PathStrokeType (sw * 0.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        return;
+    }
+
+    // DSP — a chip package with legs + a pin-1 dot (no valve envelope).
     if (type == DeviceType::dsp)
     {
         const float bw = er * 1.20f, bh = er * 1.00f;
@@ -158,6 +191,7 @@ inline juce::Colour deviceStroke (DeviceType t)
                  case DeviceType::pnp:  return juce::Colour (0xffc3dbf6);
                  case DeviceType::fet:  return juce::Colour (0xffc3edcf);
                  case DeviceType::dsp:  return juce::Colour (0xfff2b8b4);
+                 case DeviceType::ic:   return juce::Colour (0xfff2b8e0);
                  case DeviceType::diode: return juce::Colour (0xffeef0f4);
                  case DeviceType::none: default: break; }   // explicit: keeps -Wswitch-enum consumers clean
     return juce::Colour (0xffb8b0a0);
@@ -167,7 +201,8 @@ inline juce::Colour deviceGlow (DeviceType t)
     switch (t) { case DeviceType::tube: return juce::Colour (0xffff9a3c);   // warm amber
                  case DeviceType::pnp:  return juce::Colour (0xff4e9ae8);   // blue (BJT)
                  case DeviceType::fet:  return juce::Colour (0xff58c877);   // green (FET)
-                 case DeviceType::dsp:  return juce::Colour (0xffe23b3b);   // red (DSP chip)
+                 case DeviceType::dsp:  return juce::Colour (0xffe23b3b);   // red (digital chip)
+                 case DeviceType::ic:   return juce::Colour (0xffe264b4);   // magenta (analogue op-amp)
                  case DeviceType::diode: return juce::Colour (0xffffffff);  // white (diode)
                  case DeviceType::none: default: break; }   // explicit: keeps -Wswitch-enum consumers clean
     return juce::Colours::transparentBlack;

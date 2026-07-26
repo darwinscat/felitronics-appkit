@@ -17,7 +17,15 @@
 namespace felitronics::appkit
 {
 
-enum class DeviceType { none, tube, pnp, fet, dsp, diode };
+// `ic` and `dsp` are deliberately SEPARATE types. An analogue op-amp and a digital signal path share
+// nothing but a DIP package: a Tube Screamer's JRC4558 sits IN the audio path and clips, while a
+// Boss GT converts, computes and converts back. One chip glyph for both would hide the single most
+// useful thing this row can say about a pedal.
+//
+// `ic` was an alias for `dsp` before the split. Existing specs that say "ic" now read as ANALOGUE —
+// which is what the word almost always meant for the pedals this describes; a caller that really
+// means digital has "dsp" and "digital".
+enum class DeviceType { none, tube, pnp, fet, dsp, diode, ic };
 
 inline DeviceType deviceFromString (const juce::String& s)
 {
@@ -25,7 +33,10 @@ inline DeviceType deviceFromString (const juce::String& s)
     if (l == "tube" || l == "valve")          return DeviceType::tube;
     if (l == "pnp"  || l == "npn" || l == "bjt" || l == "transistor") return DeviceType::pnp;
     if (l == "fet"  || l == "jfet" || l == "mosfet") return DeviceType::fet;
-    if (l == "dsp"  || l == "chip" || l == "ic" || l == "digital")    return DeviceType::dsp;
+    if (l == "ic"   || l == "opamp" || l == "op-amp") return DeviceType::ic;
+    // "chip" stays with dsp — it is the vaguer word, and whoever means the analogue part has the
+    // precise one available.
+    if (l == "dsp"  || l == "chip" || l == "digital") return DeviceType::dsp;
     if (l == "diode")                         return DeviceType::diode;
     return DeviceType::none;
 }

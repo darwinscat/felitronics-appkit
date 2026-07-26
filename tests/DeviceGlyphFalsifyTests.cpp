@@ -75,7 +75,7 @@ int main()
         bool allNonBlank = true;
         bool allInside = true;
         for (const auto type : std::vector<DeviceType> { DeviceType::tube, DeviceType::pnp, DeviceType::fet,
-                                                         DeviceType::dsp, DeviceType::diode })
+                                                         DeviceType::dsp, DeviceType::ic, DeviceType::diode })
         {
             const auto img = renderStaticSpec ({ { type, 1 } }, area);
             const auto bounds = alphaBounds (img);

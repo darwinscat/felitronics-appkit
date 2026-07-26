@@ -47,9 +47,14 @@ int main()
     ok (deviceFromString ("jfet")   == DeviceType::fet, "jfet -> fet");
     ok (deviceFromString ("mosfet") == DeviceType::fet, "mosfet -> fet");
     ok (deviceFromString ("dsp")     == DeviceType::dsp, "dsp");
-    ok (deviceFromString ("chip")    == DeviceType::dsp, "chip -> dsp");
-    ok (deviceFromString ("ic")      == DeviceType::dsp, "ic -> dsp");
+    ok (deviceFromString ("chip")    == DeviceType::dsp, "chip -> dsp (the vague word stays digital)");
     ok (deviceFromString ("digital") == DeviceType::dsp, "digital -> dsp");
+    // An analogue op-amp is NOT a DSP: a Tube Screamer's 4558 clips IN the audio path, a Boss GT
+    // converts, computes and converts back. They share a package and nothing else.
+    ok (deviceFromString ("ic")      == DeviceType::ic, "ic -> ic (analogue op-amp)");
+    ok (deviceFromString ("opamp")   == DeviceType::ic, "opamp -> ic");
+    ok (deviceFromString ("op-amp")  == DeviceType::ic, "op-amp -> ic");
+    ok (deviceFromString ("ic")      != DeviceType::dsp, "ic is no longer an alias for dsp");
     ok (deviceFromString ("diode")   == DeviceType::diode, "diode");
 
     group ("deviceFromString: case + whitespace fold; unknown -> none");
