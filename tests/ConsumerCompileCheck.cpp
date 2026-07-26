@@ -136,7 +136,7 @@ int main (int argc, char** argv)
 
         const auto spec = fk::parseDeviceSpec ("tube:1,pnp:1");
         ok (fk::deviceSpecCount (spec) == 2, "hybrid spec parses to 2 glyphs");
-        ok (fk::deviceGlow (DeviceType::tube) != fk::deviceGlow (DeviceType::pnp),
+        ok (fk::deviceGlow (DeviceType::tube) != fk::deviceGlow (DeviceType::bjt),
             "hybrid glows two family colours");
 
         auto paintedPixels = [] (const juce::Image& img)
