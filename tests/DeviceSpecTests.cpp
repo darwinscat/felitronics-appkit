@@ -36,43 +36,41 @@ int main()
 {
     std::printf ("felitronics::appkit device-spec tests\n");
 
-    group ("deviceFromString: every alias maps to its family");
-    ok (deviceFromString ("tube")  == DeviceType::tube, "tube");
-    ok (deviceFromString ("valve") == DeviceType::tube, "valve -> tube");
-    ok (deviceFromString ("pnp")   == DeviceType::pnp, "pnp");
-    ok (deviceFromString ("npn")   == DeviceType::pnp, "npn -> pnp glyph");
-    ok (deviceFromString ("bjt")   == DeviceType::pnp, "bjt -> pnp glyph");
-    ok (deviceFromString ("transistor") == DeviceType::pnp, "transistor -> pnp glyph");
-    ok (deviceFromString ("fet")    == DeviceType::fet, "fet");
-    ok (deviceFromString ("jfet")   == DeviceType::fet, "jfet -> fet");
-    ok (deviceFromString ("mosfet") == DeviceType::fet, "mosfet -> fet");
-    ok (deviceFromString ("dsp")     == DeviceType::dsp, "dsp");
-    ok (deviceFromString ("chip")    == DeviceType::dsp, "chip -> dsp (the vague word stays digital)");
-    ok (deviceFromString ("digital") == DeviceType::dsp, "digital -> dsp");
+    group ("deviceFromString: the closed vocabulary, one spelling each");
+    ok (deviceFromString ("tube")  == DeviceType::tube,  "tube");
+    ok (deviceFromString ("bjt")   == DeviceType::bjt,   "bjt");
+    ok (deviceFromString ("fet")   == DeviceType::fet,   "fet");
+    ok (deviceFromString ("ic")    == DeviceType::ic,    "ic");
+    ok (deviceFromString ("dsp")   == DeviceType::dsp,   "dsp");
+    ok (deviceFromString ("diode") == DeviceType::diode, "diode");
     // An analogue op-amp is NOT a DSP: a Tube Screamer's 4558 clips IN the audio path, a Boss GT
     // converts, computes and converts back. They share a package and nothing else.
-    ok (deviceFromString ("ic")      == DeviceType::ic, "ic -> ic (analogue op-amp)");
-    ok (deviceFromString ("opamp")   == DeviceType::ic, "opamp -> ic");
-    ok (deviceFromString ("op-amp")  == DeviceType::ic, "op-amp -> ic");
-    ok (deviceFromString ("ic")      != DeviceType::dsp, "ic is no longer an alias for dsp");
-    ok (deviceFromString ("diode")   == DeviceType::diode, "diode");
+    ok (deviceFromString ("ic")    != DeviceType::dsp,   "ic is not an alias for dsp any more");
+
+    group ("deviceFromString: pnp/npn still read as bjt (captures on disk are stamped 'pnp')");
+    ok (deviceFromString ("pnp") == DeviceType::bjt, "pnp -> bjt");
+    ok (deviceFromString ("npn") == DeviceType::bjt, "npn -> bjt");
+
+    group ("deviceFromString: the dropped aliases now read as unknown");
+    for (const char* dead : { "valve", "transistor", "jfet", "mosfet", "chip", "digital", "opamp", "op-amp" })
+        ok (deviceFromString (dead) == DeviceType::none, std::string (dead) + " -> none");
 
     group ("deviceFromString: case + whitespace fold; unknown -> none");
-    ok (deviceFromString ("NPN")  == DeviceType::pnp,  "upper-case NPN");
+    ok (deviceFromString ("BJT")  == DeviceType::bjt,  "upper-case BJT");
     ok (deviceFromString ("TuBe") == DeviceType::tube, "mixed-case TuBe");
-    ok (deviceFromString ("  valve  ") == DeviceType::tube, "surrounding whitespace trimmed");
+    ok (deviceFromString ("  tube  ") == DeviceType::tube, "surrounding whitespace trimmed");
     ok (deviceFromString ("")      == DeviceType::none, "empty -> none");
     ok (deviceFromString ("bogus") == DeviceType::none, "unknown -> none");
-    ok (deviceFromString ("tubes") == DeviceType::none, "near-miss 'tubes' -> none (exact aliases only)");
+    ok (deviceFromString ("tubes") == DeviceType::none, "near-miss 'tubes' -> none (exact names only)");
 
     group ("parseDeviceSpec: counts and hybrids (signal order preserved)");
     expectSpec ("tube",          { { DeviceType::tube, 1 } },                          "bare type -> count 1");
     expectSpec ("tube:4",        { { DeviceType::tube, 4 } },                          "explicit count");
-    expectSpec ("tube:1,pnp:1",  { { DeviceType::tube, 1 }, { DeviceType::pnp, 1 } },  "hybrid (tube first)");
-    expectSpec ("pnp:1,tube:1",  { { DeviceType::pnp, 1 }, { DeviceType::tube, 1 } },  "order is the spec's, not sorted");
+    expectSpec ("tube:1,bjt:1",  { { DeviceType::tube, 1 }, { DeviceType::bjt, 1 } },  "hybrid (tube first)");
+    expectSpec ("pnp:1,tube:1",  { { DeviceType::bjt, 1 }, { DeviceType::tube, 1 } },  "order is the spec's, not sorted");
     expectSpec ("tube:2,tube:1", { { DeviceType::tube, 2 }, { DeviceType::tube, 1 } }, "repeated type stays two entries");
     expectSpec ("diode,dsp:2",   { { DeviceType::diode, 1 }, { DeviceType::dsp, 2 } }, "bare + counted mix");
-    expectSpec (" tube:1 , pnp:2 ", { { DeviceType::tube, 1 }, { DeviceType::pnp, 2 } }, "whitespace around tokens tolerated");
+    expectSpec (" tube:1 , pnp:2 ", { { DeviceType::tube, 1 }, { DeviceType::bjt, 2 } }, "whitespace around tokens tolerated");
     expectSpec ("tube : 2",      { { DeviceType::tube, 2 } },                          "whitespace around the colon tolerated");
     expectSpec ("TUBE:2",        { { DeviceType::tube, 2 } },                          "type is case-folded");
 
@@ -82,7 +80,7 @@ int main()
     expectSpec ("tube:1,", { { DeviceType::tube, 1 } }, "trailing comma ignored");
     ok (parseDeviceSpec (":1").empty(),      "missing type dropped");
     ok (parseDeviceSpec ("bogus:2").empty(), "unknown type dropped");
-    expectSpec ("tube:1,bogus:2,pnp:1", { { DeviceType::tube, 1 }, { DeviceType::pnp, 1 } },
+    expectSpec ("tube:1,bogus:2,pnp:1", { { DeviceType::tube, 1 }, { DeviceType::bjt, 1 } },
                 "unknown entry dropped, valid neighbours kept");
     ok (parseDeviceSpec ("tube:0").empty(),  "zero count dropped");
     ok (parseDeviceSpec ("tube:-3").empty(), "negative count dropped");

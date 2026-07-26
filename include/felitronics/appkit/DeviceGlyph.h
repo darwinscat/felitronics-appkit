@@ -12,11 +12,10 @@
 
 //==============================================================================
 // felitronics::appkit — schematic glyphs for a preamp's active device: a triode (tube), a bipolar
-// transistor (PNP-style), a FET, an analogue op-amp (ic), a digital chip (dsp), or a diode. Driven
-// by the "device" spec (see
-// DeviceSpec.h) so the UI shows WHAT a capture is — e.g. 4 tubes for a V4, one for a Volt, a PNP
-// for the transistor ISA, or a tube+PNP for a hybrid. Moved verbatim from OrbitCab ui/DeviceGlyph.h
-// (geometry, colours, and animation timing unchanged) when the device visuals were promoted here.
+// transistor (bjt), a FET, an analogue op-amp (ic), a digital chip (dsp), or a diode. Driven by the
+// "device" spec (see DeviceSpec.h) so the UI shows WHAT a capture is — e.g. 4 tubes for a V4, one
+// for a Volt, a BJT for the transistor ISA, or a tube+BJT for a hybrid. Moved from OrbitCab
+// ui/DeviceGlyph.h when the device visuals were promoted here.
 //==============================================================================
 namespace felitronics::appkit
 {
@@ -36,49 +35,54 @@ inline void drawDeviceGlyph (juce::Graphics& g, juce::Rectangle<float> r, Device
     const float er = R * 0.82f;   // envelope radius
 
     // Analogue op-amp — the schematic triangle: two inputs into the flat side, one output from the
-    // tip, marked + and -. Deliberately NOT the chip package: the package is what an op-amp and a
-    // DSP have in COMMON, and the whole point of splitting them is to show what they don't.
+    // tip, a bubble on the inverting input. Deliberately NOT the chip package: the package is what
+    // an op-amp and a DSP have in COMMON, and the point of splitting them is to show what they don't.
     if (type == DeviceType::ic)
     {
-        const float w = er * 0.98f, h = er * 1.12f;
+        const float w = er * 1.50f, h = er * 1.70f;
         const float lx = cx - w * 0.45f, rx = cx + w * 0.55f;
+
+        // The inverting input is marked by a bubble CENTRED ON the flat side. The flat side is drawn
+        // as two segments with a gap the bubble's width, so the bubble reads hollow — interrupting
+        // the line, not covering it. Filling it would need the background colour, which a glyph
+        // drawn on an arbitrary surface does not know.
+        const float iy  = h * 0.22f;
+        const float bub = er * 0.13f;
+
         juce::Path tri;
         tri.startNewSubPath (lx, cy - h * 0.5f);
         tri.lineTo          (rx, cy);
         tri.lineTo          (lx, cy + h * 0.5f);
-        tri.closeSubPath();
+        tri.lineTo          (lx, cy + iy + bub);   // flat side, up to the bubble
+        tri.startNewSubPath (lx, cy + iy - bub);   // and on from the other side of it
+        tri.lineTo          (lx, cy - h * 0.5f);
         g.strokePath (tri, stroke);
 
-        const float iy = h * 0.22f;   // the two inputs, off the flat side
+        // Shorter reach than the enveloped families: with no circle around it, a lead of the same
+        // length reads as too long next to the body.
+        const float lead = er + R * 0.24f;
         juce::Path leads;
-        leads.startNewSubPath (cx - er - R * 0.34f, cy - iy); leads.lineTo (lx, cy - iy);
-        leads.startNewSubPath (cx - er - R * 0.34f, cy + iy); leads.lineTo (lx, cy + iy);
-        leads.startNewSubPath (rx, cy);                       leads.lineTo (cx + er + R * 0.34f, cy);
+        leads.startNewSubPath (cx - lead, cy - iy); leads.lineTo (lx, cy - iy);
+        leads.startNewSubPath (cx - lead, cy + iy); leads.lineTo (lx - bub, cy + iy);
+        leads.startNewSubPath (rx, cy);             leads.lineTo (cx + lead, cy);
         g.strokePath (leads, stroke);
-
-        // + on the non-inverting input, - on the inverting one. Tiny by design: at 20 px they read
-        // as texture that says "op-amp", and at a larger size they say exactly which input is which.
-        const float m = er * 0.17f, mx = lx + er * 0.26f;
-        juce::Path marks;
-        marks.startNewSubPath (mx - m, cy - iy); marks.lineTo (mx + m, cy - iy);   // + horizontal
-        marks.startNewSubPath (mx, cy - iy - m); marks.lineTo (mx, cy - iy + m);   // + vertical
-        marks.startNewSubPath (mx - m, cy + iy); marks.lineTo (mx + m, cy + iy);   // -
-        g.strokePath (marks, juce::PathStrokeType (sw * 0.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.drawEllipse (lx - bub, cy + iy - bub, 2.0f * bub, 2.0f * bub, sw * 0.85f);
         return;
     }
 
     // DSP — a chip package with legs + a pin-1 dot (no valve envelope).
     if (type == DeviceType::dsp)
     {
-        const float bw = er * 1.20f, bh = er * 1.00f;
+        const float bw = er * 1.62f, bh = er * 1.35f;
+        const float legOut = er * 1.15f;   // where a leg ends, measured from the centre
         auto body = juce::Rectangle<float> (bw, bh).withCentre (ctr);
         g.drawRoundedRectangle (body, sw * 1.3f, sw);
         juce::Path legs;
         for (int k = 0; k < 3; ++k)
         {
             const float y = body.getY() + bh * (0.22f + 0.28f * (float) k);
-            legs.startNewSubPath (body.getX() - er * 0.30f, y); legs.lineTo (body.getX(), y);
-            legs.startNewSubPath (body.getRight(), y);          legs.lineTo (body.getRight() + er * 0.30f, y);
+            legs.startNewSubPath (cx - legOut, y);     legs.lineTo (body.getX(), y);
+            legs.startNewSubPath (body.getRight(), y); legs.lineTo (cx + legOut, y);
         }
         g.strokePath (legs, stroke);
         const float dot = sw * 1.8f;   // pin-1 marker
@@ -89,7 +93,7 @@ inline void drawDeviceGlyph (juce::Graphics& g, juce::Rectangle<float> r, Device
     // Diode: anode triangle → cathode bar, with leads out each side (no valve envelope).
     if (type == DeviceType::diode)
     {
-        const float w = er * 0.86f, h = er * 0.94f;
+        const float w = er * 1.18f, h = er * 1.28f;
         const float lx = cx - w * 0.5f, rx = cx + w * 0.5f;
         juce::Path tri;
         tri.startNewSubPath (lx, cy - h * 0.5f);
@@ -97,10 +101,12 @@ inline void drawDeviceGlyph (juce::Graphics& g, juce::Rectangle<float> r, Device
         tri.lineTo          (lx, cy + h * 0.5f);
         tri.closeSubPath();
         g.strokePath (tri, stroke);
+        // Same shorter reach as the op-amp — neither sits in an envelope circle.
+        const float lead = er + R * 0.24f;
         juce::Path leads;
-        leads.startNewSubPath (rx, cy - h * 0.5f);        leads.lineTo (rx, cy + h * 0.5f);   // cathode bar
-        leads.startNewSubPath (cx - er - R * 0.34f, cy);  leads.lineTo (lx, cy);              // anode lead
-        leads.startNewSubPath (rx, cy);                   leads.lineTo (cx + er + R * 0.34f, cy); // cathode lead
+        leads.startNewSubPath (rx, cy - h * 0.5f);   leads.lineTo (rx, cy + h * 0.5f);   // cathode bar
+        leads.startNewSubPath (cx - lead, cy);       leads.lineTo (lx, cy);              // anode lead
+        leads.startNewSubPath (rx, cy);              leads.lineTo (cx + lead, cy);       // cathode lead
         g.strokePath (leads, stroke);
         return;
     }
@@ -140,21 +146,30 @@ inline void drawDeviceGlyph (juce::Graphics& g, juce::Rectangle<float> r, Device
         }
         g.strokePath (grid, stroke);
     }
-    else if (type == DeviceType::pnp)
+    else if (type == DeviceType::bjt)
     {
-        // BJT, PNP: vertical base bar; base lead left; collector up-right, emitter down-right with the
-        // arrow pointing INTO the base (PNP).
+        // BJT: vertical base bar; base lead out the left; collector up-right then out the top,
+        // emitter down-right then out the bottom. All THREE leads cross the envelope by the same
+        // amount — previously only the base did, so the symbol sat lopsided in its circle.
         const float bx = cx - er * 0.18f;              // base bar x
         const float bt = cy - er * 0.42f, bb = cy + er * 0.42f;
-        p.startNewSubPath (bx, bt); p.lineTo (bx, bb);                 // base bar
-        p.startNewSubPath (cx - er - R * 0.34f, cy); p.lineTo (bx, cy); // base lead (left)
-        p.startNewSubPath (bx, bt + er * 0.16f); p.lineTo (cx + er * 0.5f, cy - er * 0.62f);   // collector
-        p.startNewSubPath (bx, bb - er * 0.16f); p.lineTo (cx + er * 0.5f, cy + er * 0.62f);   // emitter
+        const float lead = er + R * 0.34f;             // how far a lead reaches from the centre
+        const float dx = cx + er * 0.5f;               // where the diagonals turn vertical
+
+        const juce::Point<float> c0 (bx, bt + er * 0.16f), c1 (dx, cy - er * 0.62f);
+        const juce::Point<float> e0 (bx, bb - er * 0.16f), e1 (dx, cy + er * 0.62f);
+
+        p.startNewSubPath (bx, bt); p.lineTo (bx, bb);                  // base bar
+        p.startNewSubPath (cx - lead, cy); p.lineTo (bx, cy);           // base lead (left)
+        p.startNewSubPath (c0.x, c0.y); p.lineTo (c1.x, c1.y); p.lineTo (dx, cy - lead);   // collector
+        p.startNewSubPath (e0.x, e0.y); p.lineTo (e1.x, e1.y); p.lineTo (dx, cy + lead);   // emitter
         g.strokePath (p, stroke);
-        // emitter arrow (PNP → points toward the base bar)
-        const juce::Point<float> tip (bx + er * 0.10f, bb - er * 0.24f);
-        const float a = juce::MathConstants<float>::pi * 0.28f, len = er * 0.34f;
-        const float dir = std::atan2 ((bb - er * 0.16f) - (cy + er * 0.62f), bx - (cx + er * 0.5f));
+
+        // Emitter arrow, PNP → points INTO the base. It now sits ON the emitter line: the old tip
+        // was computed independently of the line and floated beside it.
+        const auto  tip = e0 + (e1 - e0) * 0.45f;
+        const float dir = std::atan2 (e0.y - e1.y, e0.x - e1.x);   // along the emitter, toward the base
+        const float a = juce::MathConstants<float>::pi * 0.26f, len = er * 0.30f;
         juce::Path arr;
         arr.startNewSubPath (tip);
         arr.lineTo (tip.x - len * std::cos (dir - a), tip.y - len * std::sin (dir - a));
@@ -188,7 +203,7 @@ inline void drawDeviceGlyph (juce::Graphics& g, juce::Rectangle<float> r, Device
 inline juce::Colour deviceStroke (DeviceType t)
 {
     switch (t) { case DeviceType::tube: return juce::Colour (0xfff2c793);
-                 case DeviceType::pnp:  return juce::Colour (0xffc3dbf6);
+                 case DeviceType::bjt:  return juce::Colour (0xffc3dbf6);
                  case DeviceType::fet:  return juce::Colour (0xffc3edcf);
                  case DeviceType::dsp:  return juce::Colour (0xfff2b8b4);
                  case DeviceType::ic:   return juce::Colour (0xfff2b8e0);
@@ -199,7 +214,7 @@ inline juce::Colour deviceStroke (DeviceType t)
 inline juce::Colour deviceGlow (DeviceType t)
 {
     switch (t) { case DeviceType::tube: return juce::Colour (0xffff9a3c);   // warm amber
-                 case DeviceType::pnp:  return juce::Colour (0xff4e9ae8);   // blue (BJT)
+                 case DeviceType::bjt:  return juce::Colour (0xff4e9ae8);   // blue (BJT)
                  case DeviceType::fet:  return juce::Colour (0xff58c877);   // green (FET)
                  case DeviceType::dsp:  return juce::Colour (0xffe23b3b);   // red (digital chip)
                  case DeviceType::ic:   return juce::Colour (0xffe264b4);   // magenta (analogue op-amp)

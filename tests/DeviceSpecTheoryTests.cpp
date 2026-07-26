@@ -7,11 +7,12 @@
 //
 //   spec   := ε | entry ("," entry)*          ; comma-separated; empty/whitespace tokens are skipped
 //   entry  := WS* type WS* ( ":" WS* count )? WS*
-//   type   := a case-insensitive ALIAS of one family:
-//               tube  ← tube | valve
-//               pnp   ← pnp | npn | bjt | transistor
-//               fet   ← fet | jfet | mosfet
-//               dsp   ← dsp | chip | ic | digital
+//   type   := a case-insensitive name from the CLOSED vocabulary:
+//               tube  ← tube
+//               bjt   ← bjt | pnp | npn        ; pnp/npn kept for captures already stamped that way
+//               fet   ← fet
+//               ic    ← ic                     ; analogue op-amp
+//               dsp   ← dsp                    ; digital
 //               diode ← diode
 //             (anything else ⇒ the family is `none`)
 //   count  := the leading integer of the text after ":" (JUCE getIntValue); absent ⇒ 1
@@ -61,8 +62,9 @@ static const char* canonicalName (DeviceType t)
     switch (t)
     {
         case DeviceType::tube:  return "tube";
-        case DeviceType::pnp:   return "pnp";
+        case DeviceType::bjt:   return "bjt";
         case DeviceType::fet:   return "fet";
+        case DeviceType::ic:    return "ic";
         case DeviceType::dsp:   return "dsp";
         case DeviceType::diode: return "diode";
         case DeviceType::none:  break;
@@ -143,11 +145,12 @@ static bool obeysInvariants (const juce::String& s)
 static juce::String randomFuzzString()
 {
     static const std::vector<juce::String> atoms = {
-        // valid family aliases
-        "tube", "valve", "pnp", "npn", "bjt", "transistor", "fet", "jfet", "mosfet",
-        "dsp", "chip", "ic", "digital", "diode",
-        // near-misses / unknowns
+        // the closed vocabulary, plus the two legacy bjt spellings still accepted
+        "tube", "bjt", "pnp", "npn", "fet", "ic", "dsp", "diode",
+        // near-misses / unknowns — including the aliases that USED to be accepted, so the fuzz keeps
+        // exercising them now that they must parse to none
         "tubes", "bogus", "xyz", "TUBE", "NpN", " valve ",
+        "valve", "transistor", "jfet", "mosfet", "chip", "digital", "opamp", "op-amp",
         // counts and malformed counts
         ":1", ":4", ":12", ":99", ":0", ":-3", ":2.9", ":x", ":", ":999999999999999999999",
         // separators / whitespace / punctuation
@@ -212,15 +215,18 @@ int main()
         struct ValidTok  { juce::String text; DeviceType fam; int emitted; };
         const std::vector<ValidTok> valids = {
             { "tube",       DeviceType::tube,  1 },   // bare ⇒ 1
-            { "valve:3",    DeviceType::tube,  3 },   // alias folds
-            { "NPN:2",      DeviceType::pnp,   2 },   // case folds
-            { " bjt : 4 ",  DeviceType::pnp,   4 },   // whitespace around token + colon
-            { "mosfet:15",  DeviceType::fet,   kMaxDeviceGlyphs },   // clamps 15 → 12
+            { "tube:3",     DeviceType::tube,  3 },
+            { "NPN:2",      DeviceType::bjt,   2 },   // legacy spelling, case folds
+            { " bjt : 4 ",  DeviceType::bjt,   4 },   // whitespace around token + colon
+            { "fet:15",     DeviceType::fet,   kMaxDeviceGlyphs },   // clamps 15 → 12
+            { "ic:2",       DeviceType::ic,    2 },
             { "dsp:7",      DeviceType::dsp,   7 },
             { "diode:1",    DeviceType::diode, 1 },
         };
         const std::vector<juce::String> invalids = {
-            "bogus", "bogus:3", "tube:0", "valve:-2", ":5", "fet:x", "tubes:2", "", "   ",
+            "bogus", "bogus:3", "tube:0", "tube:-2", ":5", "fet:x", "tubes:2", "", "   ",
+            // the aliases that used to be accepted are invalid input now
+            "valve", "transistor:2", "jfet", "mosfet:15", "chip:3", "digital", "opamp",
         };
 
         bool allGood = true;
@@ -255,7 +261,7 @@ int main()
     // ---------------------------------------------------------------------------------------------
     group ("round-trip: render a valid spec canonically, parse it back, get the same spec");
     {
-        const DeviceType families[] = { DeviceType::tube, DeviceType::pnp, DeviceType::fet,
+        const DeviceType families[] = { DeviceType::tube, DeviceType::bjt, DeviceType::fet,
                                         DeviceType::dsp, DeviceType::diode };
         bool allGood = true;
         juce::String firstBad;

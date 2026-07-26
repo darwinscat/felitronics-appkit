@@ -62,9 +62,9 @@ int main()
 
     group ("hand-built spec counts saturate without trusting parser invariants");
     {
-        ok (deviceSpecCount ({ { DeviceType::tube, 100 }, { DeviceType::pnp, 100 } }) == kMaxDeviceGlyphs,
+        ok (deviceSpecCount ({ { DeviceType::tube, 100 }, { DeviceType::bjt, 100 } }) == kMaxDeviceGlyphs,
             "oversize positive hand-built counts saturate at kMaxDeviceGlyphs");
-        ok (deviceSpecCount ({ { DeviceType::tube, -5 }, { DeviceType::pnp, 1 } }) == 1,
+        ok (deviceSpecCount ({ { DeviceType::tube, -5 }, { DeviceType::bjt, 1 } }) == 1,
             "negative hand-built counts do not subtract from later valid entries");
     }
 
@@ -74,7 +74,7 @@ int main()
         const juce::Rectangle<int> allowed = area.getSmallestIntegerContainer().expanded (1);
         bool allNonBlank = true;
         bool allInside = true;
-        for (const auto type : std::vector<DeviceType> { DeviceType::tube, DeviceType::pnp, DeviceType::fet,
+        for (const auto type : std::vector<DeviceType> { DeviceType::tube, DeviceType::bjt, DeviceType::fet,
                                                          DeviceType::dsp, DeviceType::ic, DeviceType::diode })
         {
             const auto img = renderStaticSpec ({ { type, 1 } }, area);

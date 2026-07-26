@@ -25,19 +25,24 @@ namespace felitronics::appkit
 // `ic` was an alias for `dsp` before the split. Existing specs that say "ic" now read as ANALOGUE —
 // which is what the word almost always meant for the pedals this describes; a caller that really
 // means digital has "dsp" and "digital".
-enum class DeviceType { none, tube, pnp, fet, dsp, diode, ic };
+enum class DeviceType { none, tube, bjt, fet, dsp, diode, ic };
 
+// The vocabulary is CLOSED: tube · bjt · fet · ic · dsp · diode, one spelling each. It is written by
+// the capture tool, not typed by a person, so a forgiving parser buys nothing and costs ambiguity —
+// "ic" used to be an accepted spelling of "dsp", which is exactly how an analogue op-amp and a
+// digital box ended up drawn as the same part.
+//
+// "pnp" and "npn" are the one exception: both are bipolar transistors and captures already on disk
+// are stamped "pnp". They draw the same symbol. Drop them once those captures are re-stamped "bjt".
 inline DeviceType deviceFromString (const juce::String& s)
 {
     const auto l = s.trim().toLowerCase();
-    if (l == "tube" || l == "valve")          return DeviceType::tube;
-    if (l == "pnp"  || l == "npn" || l == "bjt" || l == "transistor") return DeviceType::pnp;
-    if (l == "fet"  || l == "jfet" || l == "mosfet") return DeviceType::fet;
-    if (l == "ic"   || l == "opamp" || l == "op-amp") return DeviceType::ic;
-    // "chip" stays with dsp — it is the vaguer word, and whoever means the analogue part has the
-    // precise one available.
-    if (l == "dsp"  || l == "chip" || l == "digital") return DeviceType::dsp;
-    if (l == "diode")                         return DeviceType::diode;
+    if (l == "tube")                              return DeviceType::tube;
+    if (l == "bjt" || l == "pnp" || l == "npn")   return DeviceType::bjt;   // legacy capture metadata
+    if (l == "fet")                               return DeviceType::fet;
+    if (l == "ic")                                return DeviceType::ic;
+    if (l == "dsp")                               return DeviceType::dsp;
+    if (l == "diode")                             return DeviceType::diode;
     return DeviceType::none;
 }
 
