@@ -138,6 +138,17 @@ public:
     // header documents stays legal; it forwards to the labelled overload with empty labels.
     void setRefLines (std::initializer_list<RefLine> lines) { setRefLines (std::vector<RefLine> (lines)); }
 
+    // How heavy the dashed grid is drawn. A calibration surface that carries a line every 6 dB reads
+    // as a cage at the default weight — a hairline says the same thing and leaves the trace the
+    // loudest thing on the strip. Applies to the reference lines only; the corridor keeps its own.
+    void setRefLineThickness (float px)
+    {
+        const float t = juce::jlimit (0.5f, 4.0f, px);
+        if (std::abs (t - refThickness_) < 0.001f) return;
+        refThickness_ = t;
+        repaint();
+    }
+
     // Override the trace fill/stroke gradient stops INDEPENDENTLY of the dashed reference lines: each
     // entry is (dB, colour); the gradient runs lowest-dB colour at the strip bottom → highest at the top,
     // with a stop at each entry's dB. Lets a product tune where the trace turns green without adding a
@@ -275,7 +286,7 @@ public:
         {
             const float y = yOf (l.db);
             g.setColour (l.colour.withAlpha (0.92f));
-            g.drawDashedLine (juce::Line<float> (b.getX(), y, b.getRight(), y), refDash, 2, 1.8f);
+            g.drawDashedLine (juce::Line<float> (b.getX(), y, b.getRight(), y), refDash, 2, refThickness_);
             if (l.label.isNotEmpty())
             {
                 g.setFont (juce::FontOptions (13.0f));
@@ -351,6 +362,7 @@ private:
     float peakHold_ = kSilenceDb;
     float curDb_    = kSilenceDb;   // instant level for the big centred overlay
     float noiseFloor_ = std::numeric_limits<float>::quiet_NaN();   // fixed reference line; NaN = hidden
+    float refThickness_ = 1.8f;                 // dashed grid weight (setRefLineThickness)
     std::vector<RefLine> refLines_;                                // fixed calibration grid lines
     std::vector<std::pair<float, juce::Colour>> fillStops_;        // fill/stroke gradient (decoupled from lines)
 
