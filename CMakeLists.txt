@@ -316,6 +316,22 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
     endif()
     add_test(NAME appkit_device_glyph_falsify_tests COMMAND appkit_device_glyph_falsify_tests)
 
+    add_executable(appkit_mic_grid_falsify_tests tests/MicGridFalsifyTests.cpp)
+    target_link_libraries(appkit_mic_grid_falsify_tests PRIVATE
+        felitronics::appkit
+        juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_mic_grid_falsify_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_mic_grid_falsify_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_mic_grid_falsify_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_mic_grid_falsify_tests COMMAND appkit_mic_grid_falsify_tests)
+
     add_executable(appkit_compare_history_tests tests/CompareHistoryTests.cpp)
     target_link_libraries(appkit_compare_history_tests PRIVATE
         felitronics::appkit
