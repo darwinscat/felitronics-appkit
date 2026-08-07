@@ -146,7 +146,9 @@ private:
             if (dots[(size_t)hits[k]].active) return hits[(k + 1) % hits.size()];
         return hits[0];
     }
-    float speakerR() const { return (float)getHeight() * 0.40f; }
+    // The driver fills the component's height. At 0.40 it left a tenth of the box empty above and
+    // below it — space that says nothing, in a component whose whole job is the picture.
+    float speakerR() const { return juce::jmax(1.0f, (float)getHeight() * 0.5f - 3.0f); }
     float rowY(int r) const { return (float)getHeight() * 0.5f - frac[r] * speakerR(); }
     float colX(int c) const { const auto& L = ladder(); const float x0 = speakerR() * 2.0f + 96.0f, x1 = (float)getWidth() - 24.0f; return x0 + (float)c / (float)(L.size() - 1) * (x1 - x0); }
     bool fancy = true;   // realistic driver (drawn by Fable 5); set false for the flat fallback
@@ -273,7 +275,10 @@ private:
     }
     const std::vector<double>& ladder() const {
         static const std::vector<double> in { 0, .5, 1, 2, 3, 4, 5, 6 };
-        static const std::vector<double> cm { 0, 1, 2, 3, 5, 8, 10, 15 };
+        // Steps grow monotonically: 1 1 1 2 2 3 5. The old ladder went ...3 5 8 10..., where the
+        // gap swelled to 3 and then shrank back to 2 — distance is heard in ratios, and the lumpy
+        // rung read as a mistake.
+        static const std::vector<double> cm { 0, 1, 2, 3, 5, 7, 10, 15 };
         return unit == "in" ? in : cm;
     }
     juce::String distLabel(double v) const {
