@@ -223,19 +223,56 @@ inline juce::Colour deviceGlow (DeviceType t)
     return juce::Colours::transparentBlack;
 }
 
+// A multiplier costs this much of a cell beside the glyph it belongs to.
+inline constexpr float kGlyphCountWidth = 0.62f;
+
+// How many cell-widths a spec occupies: one per part, plus a slice for each multiplier shown.
+inline float deviceSpecCells (const DeviceSpec& spec)
+{
+    float cells = 0.0f;
+    int drawn = 0;
+    for (const auto& [type, cnt] : spec)
+    {
+        if (glyphsForType (type, cnt) <= 0 || drawn >= kMaxDeviceGlyphs)
+            continue;
+        cells += 1.0f + (glyphCountShown (type, cnt) > 0 ? kGlyphCountWidth : 0.0f);
+        ++drawn;
+    }
+    return cells;
+}
+
+// "x4" beside a glyph, in the glyph's own colour but quieter — the part is the statement, the count
+// is a qualifier on it.
+inline void drawGlyphCount (juce::Graphics& g, juce::Rectangle<float> area, int count, juce::Colour c)
+{
+    g.setColour (c.withAlpha (0.75f));
+    g.setFont (juce::Font (juce::FontOptions (area.getHeight() * 0.46f)));
+
+    // Fitted, not drawn: a hand-built spec can carry any number, and a count that overflowed its slice
+    // would be the one thing on the row drawn outside the space it was given.
+    g.drawFittedText (juce::String::charToString ((juce::juce_wchar) 0xd7) + juce::String (count),
+                      area.getSmallestIntegerContainer(), juce::Justification::centredLeft, 1, 0.4f);
+}
+
 // Draw a spec as a STATIC row (no glow) — used in combo popup items. Each glyph is stroked in its
 // own family colour, so a hybrid reads as a warm tube next to a blue transistor.
 inline void drawDeviceSpecStatic (juce::Graphics& g, juce::Rectangle<float> area, const DeviceSpec& spec)
 {
-    const int total = deviceSpecCount (spec);
-    if (total <= 0)
+    const float cells = deviceSpecCells (spec);
+    if (cells <= 0.0f)
         return;
-    const float cell = juce::jmin (area.getHeight(), area.getWidth() / (float) total);
-    auto row = area.withSizeKeepingCentre (cell * (float) total, cell);
+    const float cell = juce::jmin (area.getHeight(), area.getWidth() / cells);
+    auto row = area.withSizeKeepingCentre (cell * cells, cell);
     int drawn = 0;
     for (const auto& [type, cnt] : spec)
-        for (int i = 0; i < cnt && drawn < total; ++i, ++drawn)
-            drawDeviceGlyph (g, row.removeFromLeft (cell).reduced (cell * 0.12f), type, deviceStroke (type));
+    {
+        if (glyphsForType (type, cnt) <= 0 || drawn >= kMaxDeviceGlyphs)
+            continue;
+        ++drawn;
+        drawDeviceGlyph (g, row.removeFromLeft (cell).reduced (cell * 0.12f), type, deviceStroke (type));
+        if (const int shown = glyphCountShown (type, cnt); shown > 0)
+            drawGlyphCount (g, row.removeFromLeft (cell * kGlyphCountWidth), shown, deviceStroke (type));
+    }
 }
 
 // The device glyph strip (OrbitCab shows it below the preamp combo): N schematic glyphs, each over
@@ -264,27 +301,36 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        const int total = deviceSpecCount (spec);
-        if (total <= 0)
+        const float cells = deviceSpecCells (spec);
+        if (cells <= 0.0f)
             return;
         auto area = getLocalBounds().toFloat();
-        const float cell = juce::jmin (area.getHeight(), area.getWidth() / (float) total);
-        auto row = area.withSizeKeepingCentre (cell * (float) total, cell);
+        const float cell = juce::jmin (area.getHeight(), area.getWidth() / cells);
+        auto row = area.withSizeKeepingCentre (cell * cells, cell);
         int gi = 0;
         for (const auto& [type, cnt] : spec)
-            for (int i = 0; i < cnt && gi < total; ++i, ++gi)
-            {
-                auto c = row.removeFromLeft (cell);
-                const auto  ctr  = c.getCentre();
-                const float rad  = cell * 0.66f;
-                const float lvl  = glow.level (gi);   // clamped indexing, matches the spec's glyph cap
-                const auto  gc   = deviceGlow (type); // per-glyph colour → hybrid glows amber + blue
-                juce::ColourGradient grad (gc.withAlpha (0.60f * lvl), ctr.x, ctr.y,
-                                           gc.withAlpha (0.0f),        ctr.x + rad, ctr.y, true);
-                g.setGradientFill (grad);
-                g.fillEllipse (juce::Rectangle<float> (rad * 2.0f, rad * 2.0f).withCentre (ctr));
-                drawDeviceGlyph (g, c.reduced (cell * 0.14f), type, deviceStroke (type));
-            }
+        {
+            if (glyphsForType (type, cnt) <= 0 || gi >= kMaxDeviceGlyphs)
+                continue;
+
+            auto c = row.removeFromLeft (cell);
+            const auto  ctr  = c.getCentre();
+            // Bounded by the strip's own height as well as the cell: now that a part is drawn once,
+            // the cell is as large as the row is tall, and a glow sized off it alone spilled past the
+            // component — clipped to a flat-topped semicircle by whoever painted it.
+            const float rad  = juce::jmin (cell * 0.66f, area.getHeight() * 0.5f);
+            const float lvl  = glow.level (gi);   // clamped indexing, matches the spec's glyph cap
+            const auto  gc   = deviceGlow (type); // per-glyph colour → hybrid glows amber + blue
+            juce::ColourGradient grad (gc.withAlpha (0.60f * lvl), ctr.x, ctr.y,
+                                       gc.withAlpha (0.0f),        ctr.x + rad, ctr.y, true);
+            g.setGradientFill (grad);
+            g.fillEllipse (juce::Rectangle<float> (rad * 2.0f, rad * 2.0f).withCentre (ctr));
+            drawDeviceGlyph (g, c.reduced (cell * 0.14f), type, deviceStroke (type));
+            ++gi;
+
+            if (const int shown = glyphCountShown (type, cnt); shown > 0)
+                drawGlyphCount (g, row.removeFromLeft (cell * kGlyphCountWidth), shown, deviceStroke (type));
+        }
     }
 
 private:

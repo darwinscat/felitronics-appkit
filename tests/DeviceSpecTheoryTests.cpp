@@ -19,13 +19,15 @@
 //
 //   ACCEPT an entry  ⟺  family ≠ none  AND  count > 0.
 //   Emitted count is min(count, kMaxDeviceGlyphs=12). Order = input order (never sorted, never merged).
-//   deviceSpecCount(spec) = clamp(Σ counts, 0, 12).
+//   deviceSpecCount(spec) = clamp(#entries, 0, 12) — NOT Σ counts. A part is drawn ONCE whatever the
+//   device has of it; where the number matters (tube, diode) it is printed beside the glyph rather
+//   than repeated as more pictures. See glyphsForType / glyphCountShown.
 //
 // Derived INVARIANTS the parser must uphold for ANY input (property-fuzzed below):
 //   I1  never crashes / no UB on hostile input (unicode, control bytes, huge counts, deep commas).
 //   I2  every emitted entry has family ≠ none and count ∈ [1, 12].
 //   I3  #entries ≤ #non-empty comma tokens (a malformed spec yields FEWER entries, never garbage).
-//   I4  deviceSpecCount ∈ [0, 12] and equals clamp(Σ emitted counts, 0, 12).
+//   I4  deviceSpecCount ∈ [0, 12] and equals clamp(#accepted entries, 0, 12).
 //   I5  emitted families are an in-order subsequence of the tokens' resolved families (order kept,
 //       unknown tokens dropped, nothing invented).
 //   RT  round-trip: any spec of valid families + counts 1..12 renders to "name:count,…" and parses back
@@ -124,7 +126,7 @@ static bool obeysInvariants (const juce::String& s)
     {
         if (e.first == DeviceType::none)             return false;  // I2
         if (e.second < 1 || e.second > kMaxDeviceGlyphs) return false;  // I2
-        sum += e.second;
+        sum += glyphsForType (e.first, e.second);
         emitted.push_back (e.first);
     }
 

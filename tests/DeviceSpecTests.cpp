@@ -90,11 +90,41 @@ int main()
 
     group ("parseDeviceSpec / deviceSpecCount: the kMaxDeviceGlyphs clamp");
     expectSpec ("tube:99", { { DeviceType::tube, kMaxDeviceGlyphs } }, "per-entry count clamps to 12");
-    ok (deviceSpecCount (parseDeviceSpec ("tube:4,pnp:1")) == 5,               "total sums across entries");
-    ok (deviceSpecCount (parseDeviceSpec ("tube:99,pnp:99")) == kMaxDeviceGlyphs, "total clamps to 12");
-    ok (deviceSpecCount (parseDeviceSpec ("")) == 0,                           "empty spec counts 0");
-    ok (deviceSpecCount (DeviceSpec { { DeviceType::tube, 100 } }) == kMaxDeviceGlyphs,
-        "hand-built oversize spec still clamps");
+    ok (deviceSpecCount (parseDeviceSpec ("tube:4,pnp:1")) == 2,  "one glyph per entry, not per part");
+    ok (deviceSpecCount (parseDeviceSpec ("tube:99,pnp:99")) == 2, "huge counts do not lengthen the row");
+    ok (deviceSpecCount (parseDeviceSpec ("")) == 0,               "empty spec counts 0");
+    ok (deviceSpecCount (DeviceSpec { { DeviceType::tube, 100 } }) == 1,
+        "a hand-built oversize count is still one part");
+
+    {
+        DeviceSpec many;
+        for (int i = 0; i < 40; ++i)
+            many.push_back ({ DeviceType::diode, 1 });
+        ok (deviceSpecCount (many) == kMaxDeviceGlyphs, "kMaxDeviceGlyphs now bounds entries");
+    }
+
+    group ("a part is drawn once; the count is said, not repeated");
+    ok (glyphsForType (DeviceType::tube, 4)  == 1, "four tubes still draw one glyph");
+    ok (glyphsForType (DeviceType::diode, 4) == 1, "four diodes still draw one glyph");
+    ok (glyphsForType (DeviceType::ic, 2)    == 1, "two op-amps draw one glyph");
+    ok (glyphsForType (DeviceType::ic, 0)    == 0, "no part, no glyph");
+    ok (glyphsForType (DeviceType::none, 4)  == 0, "an unknown family draws nothing");
+
+    group ("glyphCountShown: whose number is worth saying");
+    ok (glyphCountShown (DeviceType::tube, 2)  == 2, "two tubes say x2 — SE against push-pull");
+    ok (glyphCountShown (DeviceType::diode, 4) == 4, "four diodes say x4 — the clipper's shape");
+    ok (glyphCountShown (DeviceType::tube, 1)  == 0, "one of a thing says nothing");
+    ok (glyphCountShown (DeviceType::diode, 1) == 0, "one diode says nothing");
+    ok (glyphCountShown (DeviceType::ic, 9)    == 0, "nine op-amps say nothing — nobody hears them");
+    ok (glyphCountShown (DeviceType::bjt, 6)   == 0, "six transistors say nothing");
+    ok (glyphCountShown (DeviceType::fet, 6)   == 0, "six FETs say nothing");
+    ok (glyphCountShown (DeviceType::dsp, 3)   == 0, "three DSPs say nothing");
+
+    // The report that started this: SM7 declares six parts and crowded a narrow block with six
+    // pictures, four of which said the same thing.
+    ok (deviceSpecCount (parseDeviceSpec ("ic:2,diode:4")) == 2, "SM7 draws 2 glyphs, not 6");
+    ok (deviceSpecCount (parseDeviceSpec ("ic:9"))         == 1, "a count never grows the row");
+    ok (deviceSpecCount (parseDeviceSpec ("tube:4"))       == 1, "not even a tube count");
 
     std::printf ("%d checks, %d failures\n%s\n", checks, failures, failures == 0 ? "ALL TESTS PASSED" : "FAILED");
     return failures == 0 ? 0 : 1;
