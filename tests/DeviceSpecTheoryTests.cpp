@@ -20,8 +20,8 @@
 //   ACCEPT an entry  ⟺  family ≠ none  AND  count > 0.
 //   Emitted count is min(count, kMaxDeviceGlyphs=12). Order = input order (never sorted, never merged).
 //   deviceSpecCount(spec) = clamp(#entries, 0, 12) — NOT Σ counts. A part is drawn ONCE whatever the
-//   device has of it; where the number matters (tube, diode) it is printed beside the glyph rather
-//   than repeated as more pictures. See glyphsForType / glyphCountShown.
+//   device has of it, and the count is not shown; a glyph answers what is in there, not how many.
+//   See glyphsForType.
 //
 // Derived INVARIANTS the parser must uphold for ANY input (property-fuzzed below):
 //   I1  never crashes / no UB on hostile input (unicode, control bytes, huge counts, deep commas).

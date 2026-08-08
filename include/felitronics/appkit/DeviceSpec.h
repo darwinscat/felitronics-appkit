@@ -76,42 +76,18 @@ inline DeviceSpec parseDeviceSpec (const juce::String& s)
     return out;
 }
 
-// A part is drawn ONCE, whatever the device has of it. What differs between families is whether the
-// number is worth saying at all — see glyphCountShown below.
+// A part is drawn ONCE, whatever the device has of it, and the number is not shown at all.
+//
+// The count is real — a pedal does have four diodes, an amp does have two output tubes — but it is
+// not what a glyph is for. A glyph answers "what is in there": a tube, a chip, a diode clipper. How
+// many is a second question, and the row is the wrong place to answer it; four small pictures, or a
+// "x4" beside one, both spend the strip's whole width on a detail nobody reads it for.
 inline int glyphsForType (DeviceType t, int count)
 {
     if (count <= 0 || t == DeviceType::none)
         return 0;
 
     return 1;
-}
-
-// The count to print beside the glyph, or 0 for none.
-//
-// For a tube or a diode the number IS the circuit: one tube is single-ended class A and two are
-// push-pull; two diodes clip symmetrically and three do not. It has to be said — but said, as "x4",
-// not drawn four times. Four small pictures of the same part cost the room that made the part
-// legible, and legibility is the entire job of a glyph.
-//
-// For a transistor or a chip the number says nothing anyone can hear. Presence is the whole message,
-// so the count is not shown.
-inline int glyphCountShown (DeviceType t, int count)
-{
-    if (count <= 1)
-        return 0;
-
-    switch (t)
-    {
-        case DeviceType::tube:
-        case DeviceType::diode: return count;
-        case DeviceType::bjt:
-        case DeviceType::fet:
-        case DeviceType::ic:
-        case DeviceType::dsp:
-        case DeviceType::none:
-        default:                break;
-    }
-    return 0;
 }
 
 // Total glyph count across the spec (clamped — bounds the drawn row + the popup width reservation).

@@ -115,7 +115,7 @@ int main()
         ok (stripBounds.has_value(), "oversize DeviceStrip spec still renders visible pixels");
         if (stripBounds)
             ok (containsRect (juce::Rectangle<int> (20, 10, 120, 30).expanded (3), *stripBounds),
-                "the strip stays inside its bounds when a count is printed");
+                "the strip stays inside its bounds at full cell size");
     }
 
     std::printf ("%d checks, %d failures\n%s\n", checks, failures, failures == 0 ? "ALL TESTS PASSED" : "FAILED");

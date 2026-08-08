@@ -103,22 +103,12 @@ int main()
         ok (deviceSpecCount (many) == kMaxDeviceGlyphs, "kMaxDeviceGlyphs now bounds entries");
     }
 
-    group ("a part is drawn once; the count is said, not repeated");
+    group ("a part is drawn once, and the count is not drawn at all");
     ok (glyphsForType (DeviceType::tube, 4)  == 1, "four tubes still draw one glyph");
     ok (glyphsForType (DeviceType::diode, 4) == 1, "four diodes still draw one glyph");
     ok (glyphsForType (DeviceType::ic, 2)    == 1, "two op-amps draw one glyph");
     ok (glyphsForType (DeviceType::ic, 0)    == 0, "no part, no glyph");
     ok (glyphsForType (DeviceType::none, 4)  == 0, "an unknown family draws nothing");
-
-    group ("glyphCountShown: whose number is worth saying");
-    ok (glyphCountShown (DeviceType::tube, 2)  == 2, "two tubes say x2 — SE against push-pull");
-    ok (glyphCountShown (DeviceType::diode, 4) == 4, "four diodes say x4 — the clipper's shape");
-    ok (glyphCountShown (DeviceType::tube, 1)  == 0, "one of a thing says nothing");
-    ok (glyphCountShown (DeviceType::diode, 1) == 0, "one diode says nothing");
-    ok (glyphCountShown (DeviceType::ic, 9)    == 0, "nine op-amps say nothing — nobody hears them");
-    ok (glyphCountShown (DeviceType::bjt, 6)   == 0, "six transistors say nothing");
-    ok (glyphCountShown (DeviceType::fet, 6)   == 0, "six FETs say nothing");
-    ok (glyphCountShown (DeviceType::dsp, 3)   == 0, "three DSPs say nothing");
 
     // The report that started this: SM7 declares six parts and crowded a narrow block with six
     // pictures, four of which said the same thing.
