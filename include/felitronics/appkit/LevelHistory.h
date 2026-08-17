@@ -138,6 +138,29 @@ public:
     // header documents stays legal; it forwards to the labelled overload with empty labels.
     void setRefLines (std::initializer_list<RefLine> lines) { setRefLines (std::vector<RefLine> (lines)); }
 
+    // THE TARGET WINDOW: "leave the level in here". A translucent band between two dBFS, drawn under
+    // the trace and independent of BOTH the reference grid and the setGreenZone corridor — a surface
+    // that already carries a 6 dB grid can still say where the hand is aiming, without a fourth kind of
+    // line to tell apart. An invalid pair (non-finite, or lo >= hi) clears it.
+    void setTargetBand (float loDb, float hiDb, juce::Colour colour)
+    {
+        if (std::isfinite (loDb) && std::isfinite (hiDb) && loDb < hiDb) { bandLo_ = loDb; bandHi_ = hiDb; }
+        else { bandLo_ = bandHi_ = std::numeric_limits<float>::quiet_NaN(); }
+        bandColour_ = colour;
+        repaint();
+    }
+
+    // How heavy the dashed grid is drawn. A calibration surface that carries a line every 6 dB reads
+    // as a cage at the default weight — a hairline says the same thing and leaves the trace the
+    // loudest thing on the strip. Applies to the reference lines only; the corridor keeps its own.
+    void setRefLineThickness (float px)
+    {
+        const float t = juce::jlimit (0.5f, 4.0f, px);
+        if (std::abs (t - refThickness_) < 0.001f) return;
+        refThickness_ = t;
+        repaint();
+    }
+
     // Override the trace fill/stroke gradient stops INDEPENDENTLY of the dashed reference lines: each
     // entry is (dB, colour); the gradient runs lowest-dB colour at the strip bottom → highest at the top,
     // with a stop at each entry's dB. Lets a product tune where the trace turns green without adding a
@@ -174,6 +197,15 @@ public:
                 if (openSubpath && i == 0) p.startNewSubPath (x, y); else p.lineTo (x, y);
             }
         };
+        // The target window goes down FIRST, under the trace and under the grid: it is the ground the
+        // level is being placed on, not another mark competing with it.
+        if (std::isfinite (bandLo_) && std::isfinite (bandHi_) && bandLo_ < bandHi_)
+        {
+            const float yTop = yOf (bandHi_), yBot = yOf (bandLo_);
+            g.setColour (bandColour_);
+            g.fillRect (juce::Rectangle<float> (b.getX(), yTop, b.getWidth(), juce::jmax (1.0f, yBot - yTop)));
+        }
+
         const juce::Colour grey (0xff8a8f98), green (0xff33d13f), red (0xffe0402e);
         const float h = juce::jmax (1.0f, b.getBottom() - b.getY());
         auto fB = [&] (float y) { return juce::jlimit (0.001, 0.999, (double) ((b.getBottom() - y) / h)); };
@@ -275,7 +307,7 @@ public:
         {
             const float y = yOf (l.db);
             g.setColour (l.colour.withAlpha (0.92f));
-            g.drawDashedLine (juce::Line<float> (b.getX(), y, b.getRight(), y), refDash, 2, 1.8f);
+            g.drawDashedLine (juce::Line<float> (b.getX(), y, b.getRight(), y), refDash, 2, refThickness_);
             if (l.label.isNotEmpty())
             {
                 g.setFont (juce::FontOptions (13.0f));
@@ -351,12 +383,18 @@ private:
     float peakHold_ = kSilenceDb;
     float curDb_    = kSilenceDb;   // instant level for the big centred overlay
     float noiseFloor_ = std::numeric_limits<float>::quiet_NaN();   // fixed reference line; NaN = hidden
+    float refThickness_ = 1.8f;                 // dashed grid weight (setRefLineThickness)
     std::vector<RefLine> refLines_;                                // fixed calibration grid lines
     std::vector<std::pair<float, juce::Colour>> fillStops_;        // fill/stroke gradient (decoupled from lines)
 
     // Corridor thresholds (dBFS). NaN = no corridor → plain grey trace (default).
     float zoneLo_ = std::numeric_limits<float>::quiet_NaN();
     float zoneHi_ = std::numeric_limits<float>::quiet_NaN();
+
+    // The target window (setTargetBand). NaN = none.
+    float bandLo_ = std::numeric_limits<float>::quiet_NaN();
+    float bandHi_ = std::numeric_limits<float>::quiet_NaN();
+    juce::Colour bandColour_ { 0x2233d13f };
 
     // Hard overload ceiling (dBFS). NaN = off. Columns above it get a full-height red bar.
     float clipCeiling_ = std::numeric_limits<float>::quiet_NaN();
