@@ -62,8 +62,15 @@ int main()
 
     group ("hand-built spec counts saturate without trusting parser invariants");
     {
-        ok (deviceSpecCount ({ { DeviceType::tube, 100 }, { DeviceType::bjt, 100 } }) == kMaxDeviceGlyphs,
-            "oversize positive hand-built counts saturate at kMaxDeviceGlyphs");
+        // Stronger than the saturation this used to check: a count cannot lengthen the row at all now,
+        // so two entries are two glyphs however many parts each of them claims.
+        ok (deviceSpecCount ({ { DeviceType::tube, 100 }, { DeviceType::bjt, 100 } }) == 2,
+            "oversize hand-built counts do not lengthen the row");
+
+        DeviceSpec many;
+        for (int i = 0; i < 40; ++i)
+            many.push_back ({ DeviceType::tube, 1 });
+        ok (deviceSpecCount (many) == kMaxDeviceGlyphs, "entry count is what kMaxDeviceGlyphs bounds");
         ok (deviceSpecCount ({ { DeviceType::tube, -5 }, { DeviceType::bjt, 1 } }) == 1,
             "negative hand-built counts do not subtract from later valid entries");
     }
@@ -95,7 +102,7 @@ int main()
         ok (bounds.has_value(), "oversize static spec still renders visible pixels");
         if (bounds)
             ok (containsRect (area.getSmallestIntegerContainer().expanded (2), *bounds),
-                "oversize static spec is clipped by glyph count, not raw count");
+                "a spec claiming 100 parts stays inside its row");
 
         DeviceStrip strip;
         strip.set ({ { DeviceType::tube, 100 } });
@@ -108,7 +115,7 @@ int main()
         ok (stripBounds.has_value(), "oversize DeviceStrip spec still renders visible pixels");
         if (stripBounds)
             ok (containsRect (juce::Rectangle<int> (20, 10, 120, 30).expanded (3), *stripBounds),
-                "oversize DeviceStrip spec is bounded by the clamped glyph count");
+                "the strip stays inside its bounds at full cell size");
     }
 
     std::printf ("%d checks, %d failures\n%s\n", checks, failures, failures == 0 ? "ALL TESTS PASSED" : "FAILED");

@@ -76,15 +76,30 @@ inline DeviceSpec parseDeviceSpec (const juce::String& s)
     return out;
 }
 
+// A part is drawn ONCE, whatever the device has of it, and the number is not shown at all.
+//
+// The count is real — a pedal does have four diodes, an amp does have two output tubes — but it is
+// not what a glyph is for. A glyph answers "what is in there": a tube, a chip, a diode clipper. How
+// many is a second question, and the row is the wrong place to answer it; four small pictures, or a
+// "x4" beside one, both spend the strip's whole width on a detail nobody reads it for.
+inline int glyphsForType (DeviceType t, int count)
+{
+    if (count <= 0 || t == DeviceType::none)
+        return 0;
+
+    return 1;
+}
+
 // Total glyph count across the spec (clamped — bounds the drawn row + the popup width reservation).
 inline int deviceSpecCount (const DeviceSpec& spec)
 {
     int n = 0;
     for (const auto& p : spec)
     {
-        if (p.second <= 0)
+        const int drawn = glyphsForType (p.first, p.second);
+        if (drawn <= 0)
             continue;
-        n += juce::jmin (p.second, kMaxDeviceGlyphs - n);
+        n += juce::jmin (drawn, kMaxDeviceGlyphs - n);
         if (n >= kMaxDeviceGlyphs)
             return kMaxDeviceGlyphs;
     }

@@ -234,8 +234,12 @@ inline void drawDeviceSpecStatic (juce::Graphics& g, juce::Rectangle<float> area
     auto row = area.withSizeKeepingCentre (cell * (float) total, cell);
     int drawn = 0;
     for (const auto& [type, cnt] : spec)
-        for (int i = 0; i < cnt && drawn < total; ++i, ++drawn)
-            drawDeviceGlyph (g, row.removeFromLeft (cell).reduced (cell * 0.12f), type, deviceStroke (type));
+    {
+        if (glyphsForType (type, cnt) <= 0 || drawn >= total)
+            continue;
+        ++drawn;
+        drawDeviceGlyph (g, row.removeFromLeft (cell).reduced (cell * 0.12f), type, deviceStroke (type));
+    }
 }
 
 // The device glyph strip (OrbitCab shows it below the preamp combo): N schematic glyphs, each over
@@ -272,19 +276,25 @@ public:
         auto row = area.withSizeKeepingCentre (cell * (float) total, cell);
         int gi = 0;
         for (const auto& [type, cnt] : spec)
-            for (int i = 0; i < cnt && gi < total; ++i, ++gi)
-            {
-                auto c = row.removeFromLeft (cell);
-                const auto  ctr  = c.getCentre();
-                const float rad  = cell * 0.66f;
-                const float lvl  = glow.level (gi);   // clamped indexing, matches the spec's glyph cap
-                const auto  gc   = deviceGlow (type); // per-glyph colour → hybrid glows amber + blue
-                juce::ColourGradient grad (gc.withAlpha (0.60f * lvl), ctr.x, ctr.y,
-                                           gc.withAlpha (0.0f),        ctr.x + rad, ctr.y, true);
-                g.setGradientFill (grad);
-                g.fillEllipse (juce::Rectangle<float> (rad * 2.0f, rad * 2.0f).withCentre (ctr));
-                drawDeviceGlyph (g, c.reduced (cell * 0.14f), type, deviceStroke (type));
-            }
+        {
+            if (glyphsForType (type, cnt) <= 0 || gi >= total)
+                continue;
+
+            auto c = row.removeFromLeft (cell);
+            const auto  ctr  = c.getCentre();
+            // Bounded by the strip's own height as well as the cell: now that a part is drawn once,
+            // the cell is as large as the row is tall, and a glow sized off it alone spilled past the
+            // component — clipped to a flat-topped semicircle by whoever painted it.
+            const float rad  = juce::jmin (cell * 0.66f, area.getHeight() * 0.5f);
+            const float lvl  = glow.level (gi);   // clamped indexing, matches the spec's glyph cap
+            const auto  gc   = deviceGlow (type); // per-glyph colour → hybrid glows amber + blue
+            juce::ColourGradient grad (gc.withAlpha (0.60f * lvl), ctr.x, ctr.y,
+                                       gc.withAlpha (0.0f),        ctr.x + rad, ctr.y, true);
+            g.setGradientFill (grad);
+            g.fillEllipse (juce::Rectangle<float> (rad * 2.0f, rad * 2.0f).withCentre (ctr));
+            drawDeviceGlyph (g, c.reduced (cell * 0.14f), type, deviceStroke (type));
+            ++gi;
+        }
     }
 
 private:
