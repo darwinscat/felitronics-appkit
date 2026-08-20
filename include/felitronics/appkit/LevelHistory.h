@@ -15,6 +15,9 @@
 //     dashed coloured reference lines that never move, with the trace fill/stroke gradient-tinted to
 //     match them (dark low → red high). Pair with setNoiseFloor(dB) for a black room-quiet line and
 //     setCurrentDb(dB) for a live level readout in the bottom-right corner.
+// setTargetBand(lo, hi, colour) fills the window a level is being placed in, under the trace and under
+// the grid; setSecondBand(lo, hi, colour) fills another beside it, for a strip that carries two aims
+// read at different moments.
 //   • setGreenZone(loDb, hiDb) — an alternate MOVING corridor: dashed green-floor / amber-ceiling
 //     lines with the trace tinted grey→green→red around them; a non-finite or inverted pair CLEARS it.
 // setClipCeiling(dB) marks a hard "too hot" line independent of the mode: every column that broke it
@@ -150,6 +153,19 @@ public:
         repaint();
     }
 
+    // A SECOND window, drawn exactly like the first and under it. Two are wanted when a strip carries
+    // two aims at once that are read at different moments — a capture bench sets its reamp send while
+    // watching one, then turns the input up and lands the take in the other. Drawing the second as
+    // dashed lines instead was tried and read as part of the grid; a window is a window, and the
+    // colour is what says which. Non-finite or inverted CLEARS it, like the first.
+    void setSecondBand (float loDb, float hiDb, juce::Colour colour)
+    {
+        if (std::isfinite (loDb) && std::isfinite (hiDb) && loDb < hiDb) { band2Lo_ = loDb; band2Hi_ = hiDb; }
+        else { band2Lo_ = band2Hi_ = std::numeric_limits<float>::quiet_NaN(); }
+        band2Colour_ = colour;
+        repaint();
+    }
+
     // How heavy the dashed grid is drawn. A calibration surface that carries a line every 6 dB reads
     // as a cage at the default weight — a hairline says the same thing and leaves the trace the
     // loudest thing on the strip. Applies to the reference lines only; the corridor keeps its own.
@@ -199,12 +215,15 @@ public:
         };
         // The target window goes down FIRST, under the trace and under the grid: it is the ground the
         // level is being placed on, not another mark competing with it.
-        if (std::isfinite (bandLo_) && std::isfinite (bandHi_) && bandLo_ < bandHi_)
+        const auto fillBand = [&] (float lo, float hi, juce::Colour c)
         {
-            const float yTop = yOf (bandHi_), yBot = yOf (bandLo_);
-            g.setColour (bandColour_);
+            if (! (std::isfinite (lo) && std::isfinite (hi) && lo < hi)) return;
+            const float yTop = yOf (hi), yBot = yOf (lo);
+            g.setColour (c);
             g.fillRect (juce::Rectangle<float> (b.getX(), yTop, b.getWidth(), juce::jmax (1.0f, yBot - yTop)));
-        }
+        };
+        fillBand (band2Lo_, band2Hi_, band2Colour_);   // …the second one under the first
+        fillBand (bandLo_, bandHi_, bandColour_);
 
         const juce::Colour grey (0xff8a8f98), green (0xff33d13f), red (0xffe0402e);
         const float h = juce::jmax (1.0f, b.getBottom() - b.getY());
@@ -395,6 +414,11 @@ private:
     float bandLo_ = std::numeric_limits<float>::quiet_NaN();
     float bandHi_ = std::numeric_limits<float>::quiet_NaN();
     juce::Colour bandColour_ { 0x2233d13f };
+
+    // …and the second window (setSecondBand). NaN = none.
+    float band2Lo_ = std::numeric_limits<float>::quiet_NaN();
+    float band2Hi_ = std::numeric_limits<float>::quiet_NaN();
+    juce::Colour band2Colour_ { 0x229778ff };
 
     // Hard overload ceiling (dBFS). NaN = off. Columns above it get a full-height red bar.
     float clipCeiling_ = std::numeric_limits<float>::quiet_NaN();
