@@ -19,8 +19,10 @@
 #include <webp/decode.h>
 #include <webp/encode.h>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace felitronics::appkit {
@@ -55,14 +57,18 @@ inline std::vector<std::byte> encodeWebp (const juce::Image& img, float quality 
         }
     }
 
+    // libwebp VALIDATES quality rather than clamping it - out of range would come back as a bare
+    // "encoder refused", indistinguishable from a real failure. Clamped here; a NaN falls to the
+    // default rather than through jlimit's comparisons.
+    const float q = std::isfinite (quality) ? juce::jlimit (0.0f, 100.0f, quality) : 85.0f;
     std::uint8_t* encoded = nullptr;
     const std::size_t n = WebPEncodeBGRA (straight.data(), w, h, static_cast<int> (rowBytes),
-                                          quality, &encoded);
-    if (n == 0 || encoded == nullptr) { WebPFree (encoded); return {}; }
-    std::vector<std::byte> bytes (reinterpret_cast<const std::byte*> (encoded),
-                                  reinterpret_cast<const std::byte*> (encoded) + n);
-    WebPFree (encoded);
-    return bytes;
+                                          q, &encoded);
+    // Owned BEFORE the copy: if the vector's allocation throws, the encoder's buffer must not leak.
+    const std::unique_ptr<std::uint8_t, decltype (&WebPFree)> owned (encoded, &WebPFree);
+    if (n == 0 || encoded == nullptr) return {};
+    return { reinterpret_cast<const std::byte*> (encoded),
+             reinterpret_cast<const std::byte*> (encoded) + n };
 }
 
 /// WebP bytes → an ARGB juce::Image (premultiplied, as JUCE keeps them). Invalid on failure.
@@ -70,8 +76,16 @@ inline juce::Image decodeWebp (const void* bytes, std::size_t size)
 {
     if (bytes == nullptr || size == 0) return {};
     const auto* data = static_cast<const std::uint8_t*> (bytes);
-    int w = 0, h = 0;
-    if (WebPGetInfo (data, size, &w, &h) == 0 || w <= 0 || h <= 0) return {};
+    // FEATURES BEFORE A SINGLE BYTE IS ALLOCATED. WebPGetInfo hands over a VP8X header's 24-bit
+    // canvas before any frame is validated - a forged thirty-byte "animation" declaring 65535x65535
+    // would otherwise walk a ~17 GB allocation straight into std::vector. Animation is refused (this
+    // decodes ONE picture), and both sides are held to WebP's own hard ceiling.
+    WebPBitstreamFeatures f;
+    if (WebPGetFeatures (data, size, &f) != VP8_STATUS_OK) return {};
+    if (f.has_animation != 0
+        || f.width <= 0 || f.height <= 0
+        || f.width > WEBP_MAX_DIMENSION || f.height > WEBP_MAX_DIMENSION) return {};
+    const int w = f.width, h = f.height;
 
     const std::size_t rowBytes = static_cast<std::size_t> (w) * 4u;
     std::vector<std::uint8_t> straight (rowBytes * static_cast<std::size_t> (h));

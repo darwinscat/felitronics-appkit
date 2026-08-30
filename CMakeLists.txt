@@ -35,16 +35,24 @@ set(FELITRONICS_APPKIT_WEBP_SRC "" CACHE PATH "Optional path to a local libwebp 
 if(FELITRONICS_APPKIT_WEBP)
     include(FetchContent)
     # Only the codec — no command-line tools, no extras: consumers link a library, not a toolbox.
-    foreach(_tool ANIM_UTILS CWEBP DWEBP GIF2WEBP IMG2WEBP VWEBP WEBPINFO WEBPMUX EXTRAS)
+    foreach(_tool ANIM_UTILS CWEBP DWEBP GIF2WEBP IMG2WEBP VWEBP WEBPINFO WEBPMUX LIBWEBPMUX EXTRAS)
         set(WEBP_BUILD_${_tool} OFF CACHE BOOL "" FORCE)
     endforeach()
+    # EXCLUDE_FROM_ALL keeps libwebp's unconditional side targets (webpdemux and friends) out of
+    # the consumer's `all`; the option exists from CMake 3.28 - below that they build for nothing,
+    # which costs seconds and breaks nothing.
+    set(_appkit_webp_excl "")
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.28)
+        set(_appkit_webp_excl EXCLUDE_FROM_ALL)
+    endif()
     if(FELITRONICS_APPKIT_WEBP_SRC)
-        FetchContent_Declare(libwebp SOURCE_DIR "${FELITRONICS_APPKIT_WEBP_SRC}")
+        FetchContent_Declare(libwebp SOURCE_DIR "${FELITRONICS_APPKIT_WEBP_SRC}" ${_appkit_webp_excl})
     else()
         FetchContent_Declare(libwebp
             GIT_REPOSITORY https://github.com/webmproject/libwebp.git
             GIT_TAG        v1.6.0
-            GIT_SHALLOW    TRUE)
+            GIT_SHALLOW    TRUE
+            ${_appkit_webp_excl})
     endif()
     FetchContent_MakeAvailable(libwebp)
     add_library(felitronics_appkit_webp INTERFACE)

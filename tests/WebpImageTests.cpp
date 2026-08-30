@@ -81,6 +81,15 @@ int main()
         ok (encodeWebp (juce::Image()).empty(), "a null image encodes to nothing");
         const unsigned char junk[16] = { 'R', 'I', 'F', 'F', 0, 0, 0, 0, 'J', 'U', 'N', 'K', 0, 0, 0, 0 };
         ok (! decodeWebp (junk, sizeof (junk)).isValid(), "junk decodes to an invalid image");
+        // A forged VP8X header: thirty bytes declaring an ANIMATED 65535x65535 canvas. WebPGetInfo
+        // reports those dimensions without validating a single frame - the decoder must refuse
+        // before allocating anything.
+        const unsigned char vp8x[30] = { 'R', 'I', 'F', 'F', 22, 0, 0, 0, 'W', 'E', 'B', 'P',
+                                         'V', 'P', '8', 'X', 10, 0, 0, 0,
+                                         0x02, 0, 0, 0,               // flags: ANIMATION
+                                         0xfe, 0xff, 0x00,            // canvas width - 1  = 65534
+                                         0xfe, 0xff, 0x00 };          // canvas height - 1 = 65534
+        ok (! decodeWebp (vp8x, sizeof (vp8x)).isValid(), "a forged animated canvas is refused before any allocation");
         ok (! decodeWebp (nullptr, 0).isValid(), "no bytes, no image");
     }
 
