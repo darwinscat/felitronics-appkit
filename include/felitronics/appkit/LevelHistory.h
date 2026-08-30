@@ -118,7 +118,10 @@ public:
     // order does not matter (endpoints are chosen by dB); non-finite dB entries are dropped. Takes
     // paint precedence over the setGreenZone corridor; an empty list clears the grid. A non-empty
     // label is captioned bottom-left UNDER the line ("-15 dB") in the line's colour.
-    struct RefLine { float db {}; juce::Colour colour {}; juce::String label {}; };   // defaults: a terse {dB, colour} entry omits the label warning-clean
+    // `dash` scales the dash pattern: 1 is the grid's own, larger is sparser. A line that is NOT part
+    // of a regular grid — a single level somebody chose, sitting between two of its rungs — needs to
+    // say so at a glance, and a longer stride says it without another colour or another weight.
+    struct RefLine { float db {}; juce::Colour colour {}; juce::String label {}; float dash { 1.0f }; };
 
     void setRefLines (std::vector<RefLine> lines)
     {
@@ -321,10 +324,11 @@ public:
 
         // Fixed calibration grid: DASHED coloured reference lines at their dBFS, always in the same
         // place; a labelled line gets its dB captioned bottom-left just under it.
-        const float refDash[] = { 6.0f, 4.0f };
         for (const auto& l : refLines_)
         {
             const float y = yOf (l.db);
+            const float k = juce::jlimit (0.5f, 8.0f, l.dash);
+            const float refDash[] = { 6.0f * k, 4.0f * k };
             g.setColour (l.colour.withAlpha (0.92f));
             g.drawDashedLine (juce::Line<float> (b.getX(), y, b.getRight(), y), refDash, 2, refThickness_);
             if (l.label.isNotEmpty())
