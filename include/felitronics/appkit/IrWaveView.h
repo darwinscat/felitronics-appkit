@@ -132,8 +132,10 @@ public:
     // The TRIM handle (and trimming) only show and work while the owner's TRIM is on.
     void setTrimEnabled (bool shouldBeEnabled)         { trimEnabled = shouldBeEnabled; repaint(); }
 
-    // A live pre/post spectrum (0..1 bins on a log axis), drawn faint behind the impulse. Optional.
-    void setSpectrum (const std::vector<float>& pre, const std::vector<float>& post) { preSpec = pre; postSpec = post; repaint(); }
+    // A live spectrum behind the impulse, drawn by the OWNER — handed the impulse's rectangle, so
+    // whatever analyser look the owner's console already has is the look here too, one renderer
+    // for both. Optional; nothing is drawn without it.
+    std::function<void (juce::Graphics&, juce::Rectangle<float>)> paintSpectrumUnder;
 
     // The tint of the impulse, the curve, the spectrum and the trim handle.
     void setAccent (juce::Colour c)                    { accent = c; repaint(); }
@@ -174,7 +176,9 @@ public:
         g.drawHorizontalLine ((int) mid, r.getX(), r.getRight());
         drawDbGrid (g, r, mid, amp);
         drawTimeGrid (g, r);
-        drawSpectrum (g, r);
+
+        if (paintSpectrumUnder != nullptr && isEnabled())
+            paintSpectrumUnder (g, r);
 
         for (int i = 0; i < n; ++i)
         {
@@ -244,41 +248,6 @@ private:
     float freqForX (float x, juce::Rectangle<float> r) const { return irwave::freqForX (x, r.getX(), r.getWidth(), kFMin, kFMax); }
     float curveY   (float mag, juce::Rectangle<float> r) const { return irwave::eqCurveY (mag, r.getY(), r.getHeight()); }
     float magAt    (float f) const { return irwave::eqMagnitude (f, hpfOn, hpfHz, lpfOn, lpfHz); }
-
-    void drawSpectrum (juce::Graphics& g, juce::Rectangle<float> r)
-    {
-        if (! isEnabled())
-            return;
-        const int n = (int) postSpec.size();
-        if (n < 2)
-            return;
-
-        const float base = r.getBottom();
-        const float h    = r.getHeight() * 0.72f;
-        auto sx = [&] (int i) { return r.getX() + r.getWidth() * (float) i / (float) (n - 1); };
-
-        if ((int) preSpec.size() == n)
-        {
-            juce::Path pre;
-            pre.startNewSubPath (r.getX(), base);
-            for (int i = 0; i < n; ++i)
-                pre.lineTo (sx (i), base - juce::jlimit (0.0f, 1.0f, preSpec[(size_t) i]) * h);
-            pre.lineTo (r.getRight(), base);
-            pre.closeSubPath();
-            g.setColour (juce::Colour (0x12ffffff));
-            g.fillPath (pre);
-        }
-
-        juce::Path post;
-        for (int i = 0; i < n; ++i)
-        {
-            const float y = base - juce::jlimit (0.0f, 1.0f, postSpec[(size_t) i]) * h;
-            if (i == 0) post.startNewSubPath (sx (i), y);
-            else        post.lineTo          (sx (i), y);
-        }
-        g.setColour (accent.withAlpha (0.45f));
-        g.strokePath (post, juce::PathStrokeType (1.3f));
-    }
 
     void drawDbGrid (juce::Graphics& g, juce::Rectangle<float> r, float mid, float amp)
     {
@@ -497,7 +466,6 @@ private:
 
     juce::AudioFormatManager formatManager;
     std::vector<float>       peaks;
-    std::vector<float>       preSpec, postSpec;
     juce::Colour             accent { 0xff7c4dff };
     juce::String             metrics;
     float                    trimFraction    = 1.0f;
