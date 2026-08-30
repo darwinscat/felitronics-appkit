@@ -25,6 +25,35 @@ add_library(felitronics::appkit ALIAS felitronics_appkit)
 target_include_directories(felitronics_appkit INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(felitronics_appkit INTERFACE cxx_std_20)
 
+# --- WebP (opt-in): felitronics::appkit_webp -------------------------------------------------------
+# WebpImage.h needs libwebp COMPILED, which an include path cannot carry — so the WebP half is its
+# own target, built only when a consumer asks for it (OrbitCapture NAM does; a product that never
+# touches a picture pays nothing). libwebp is fetched pinned, exactly like JUCE; point
+# FELITRONICS_APPKIT_WEBP_SRC at a local checkout to skip the network.
+option(FELITRONICS_APPKIT_WEBP "Build felitronics::appkit_webp (fetches libwebp)" OFF)
+set(FELITRONICS_APPKIT_WEBP_SRC "" CACHE PATH "Optional path to a local libwebp source tree (skips the network fetch)")
+if(FELITRONICS_APPKIT_WEBP)
+    include(FetchContent)
+    # Only the codec — no command-line tools, no extras: consumers link a library, not a toolbox.
+    foreach(_tool ANIM_UTILS CWEBP DWEBP GIF2WEBP IMG2WEBP VWEBP WEBPINFO WEBPMUX EXTRAS)
+        set(WEBP_BUILD_${_tool} OFF CACHE BOOL "" FORCE)
+    endforeach()
+    if(FELITRONICS_APPKIT_WEBP_SRC)
+        FetchContent_Declare(libwebp SOURCE_DIR "${FELITRONICS_APPKIT_WEBP_SRC}")
+    else()
+        FetchContent_Declare(libwebp
+            GIT_REPOSITORY https://github.com/webmproject/libwebp.git
+            GIT_TAG        v1.6.0
+            GIT_SHALLOW    TRUE)
+    endif()
+    FetchContent_MakeAvailable(libwebp)
+    add_library(felitronics_appkit_webp INTERFACE)
+    add_library(felitronics::appkit_webp ALIAS felitronics_appkit_webp)
+    target_link_libraries(felitronics_appkit_webp INTERFACE felitronics_appkit webp)
+    # Belt for libwebp versions whose `webp` target exports no include dir for the build tree.
+    target_include_directories(felitronics_appkit_webp INTERFACE "${libwebp_SOURCE_DIR}/src")
+endif()
+
 # Tests build when this IS the top-level project (a consumer's FetchContent does not inherit them).
 option(FELITRONICS_APPKIT_BUILD_TESTS "Build felitronics-appkit self-tests" "${PROJECT_IS_TOP_LEVEL}")
 
@@ -361,4 +390,23 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
         target_compile_options(appkit_consumer_compile_check PRIVATE -Werror)   # recommended flags must be CLEAN
     endif()
     add_test(NAME appkit_consumer_compile_check COMMAND appkit_consumer_compile_check)   # offline smoke (no --live)
+endif()
+
+# --- WebP round-trip (JUCE tier + libwebp: both gates must be ON) ----------------------------------
+if(FELITRONICS_APPKIT_TESTS_WITH_JUCE AND FELITRONICS_APPKIT_WEBP)
+    add_executable(appkit_webp_image_tests tests/WebpImageTests.cpp)
+    target_link_libraries(appkit_webp_image_tests PRIVATE
+        felitronics::appkit_webp
+        juce::juce_graphics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_webp_image_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_webp_image_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_webp_image_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_webp_image_tests COMMAND appkit_webp_image_tests)
 endif()

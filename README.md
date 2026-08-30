@@ -24,6 +24,7 @@ Header-only. The CMake target adds an include path and nothing else — **the co
 | `felitronics/appkit/CallOut.h` | `juce_gui_basics` | `launchCallOut`: a CallOutBox parented to the editor, not the desktop — a desktop call-out orphans on screen when the plugin window closes. |
 | `felitronics/appkit/VersionBadge.h` | `juce_gui_basics` | The clickable "vX.Y.Z / format" corner badge + update popover (brand mark, full build stamp with GitHub links, opt-in "Check for updates"). Fronts the product's `UpdateChecker` adapter; identity/build-stamp/dependency-line in its `Config`. |
 | `felitronics/appkit/PerfBadge.h` | `juce_gui_basics` | The clickable "latency · CPU%" badge + live per-stage DSP-load popover; the product's stage rows (label + colour) are `Config` data, stats pushed as snapshots. |
+| `felitronics/appkit/WebpImage.h` | `juce_graphics` + `felitronics::appkit_webp` (CMake `FELITRONICS_APPKIT_WEBP=ON`, fetches libwebp) | `juce::Image` ↔ WebP for the one picture a device pack ships: lossy colour at a chosen quality, the alpha plane lossless, premultiply/unpremultiply handled — a cut-out's edge survives the trip. |
 
 Brand *assets* (Michroma font + OFL license, `catlogo.svg`) live in [`assets/`](assets/) — embed them
 from your app's CMake: `juce_add_binary_data(MyAssets SOURCES ${felitronics_appkit_SOURCE_DIR}/assets/Michroma-Regular.ttf …)`
