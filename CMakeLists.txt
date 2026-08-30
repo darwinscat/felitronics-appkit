@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(felitronics_appkit VERSION 0.9.3 LANGUAGES C CXX)   # C: juce_graphics compiles Sheenbidi (.c) in the JUCE test tier
+project(felitronics_appkit VERSION 0.9.4 LANGUAGES C CXX)   # C: juce_graphics compiles Sheenbidi (.c) in the JUCE test tier
 
 # ----------------------------------------------------------------------------
 # felitronics-appkit — APP-SIDE (non-DSP) JUCE infrastructure shared by the Darwin's Cat product
