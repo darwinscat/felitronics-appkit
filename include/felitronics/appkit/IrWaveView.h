@@ -66,6 +66,32 @@ namespace irwave
         return bot - (bot - top) * mag;
     }
 
+    // A mono max-abs span downsampled into `buckets` peak magnitudes, normalised to 0..1 — the
+    // drawn envelope of whatever window the caller hands in.
+    inline std::vector<float> computePeaks (const float* d, int numSamples, int buckets)
+    {
+        std::vector<float> peaks ((size_t) juce::jmax (0, buckets), 0.0f);
+        if (buckets <= 0 || numSamples <= 0 || d == nullptr)
+            return peaks;
+
+        float globalMax = 0.0f;
+        for (int b = 0; b < buckets; ++b)
+        {
+            const int start = (int) ((juce::int64) b       * numSamples / buckets);
+            int       end   = (int) ((juce::int64) (b + 1) * numSamples / buckets);
+            if (end <= start) end = juce::jmin (numSamples, start + 1);
+            float mx = 0.0f;
+            for (int k = start; k < end; ++k)
+                mx = juce::jmax (mx, d[k]);
+            peaks[(size_t) b] = mx;
+            globalMax = juce::jmax (globalMax, mx);
+        }
+        if (globalMax > 0.0f)
+            for (auto& v : peaks)
+                v /= globalMax;
+        return peaks;
+    }
+
     // An IR downsampled into `buckets` peak magnitudes, normalised to 0..1 — the drawn envelope. A
     // short IR stretches to the width; a long one is covered whole.
     inline std::vector<float> computePeaks (const juce::AudioBuffer<float>& buf, int numSamples, int buckets)
@@ -115,6 +141,7 @@ public:
     std::function<void (bool, float)>  onLpfChanged;     // (on, Hz)
     std::function<void (int)>          onHpfSlopeStep;   // slope-ladder notches, +1 = steeper
     std::function<void (int)>          onLpfSlopeStep;   //   (vertical drag on the cut line, down = steeper)
+    std::function<void (bool)>         onTrimToggled;    // the right-click menu's TRIM entry
 
     // Each cut wears its own colour on its line, and the cut fill is the consumer's to tint —
     // defaults follow the accent so a one-colour picture stays a one-colour picture.
@@ -132,9 +159,11 @@ public:
     void clearIR()
     {
         peaks.clear();
+        waveAbs.clear();
         metrics.clear();
         trimFraction = 1.0f;
         irMs = 0.0;
+        viewWindowMs = 0.0;
         repaint();
     }
 
@@ -144,7 +173,31 @@ public:
     void setEqVisible (bool shouldShow)                { eqVisible = shouldShow; updateCursor(); repaint(); }
 
     // The TRIM handle (and trimming) only show and work while the owner's TRIM is on.
-    void setTrimEnabled (bool shouldBeEnabled)         { trimEnabled = shouldBeEnabled; repaint(); }
+    void setTrimEnabled (bool shouldBeEnabled)
+    {
+        // TRIM switched on under a view window falls under the window's rule at once: a handle
+        // standing beyond the window jumps to its edge, and the jump is a real parameter write —
+        // it stays wherever the window put it even after the window is gone.
+        if (shouldBeEnabled && ! trimEnabled)
+            clampTrimToWindow();
+
+        trimEnabled = shouldBeEnabled;
+        repaint();
+    }
+
+    /** The view window in ms — 0 shows the whole IR. Also the trim's master while one is chosen:
+        an enabled trim beyond the window is pulled to its edge (a real write, through
+        onTrimChanged). The right-click menu drives this; a consumer may too. */
+    void setViewWindow (double ms)
+    {
+        viewWindowMs = juce::jmax (0.0, ms);
+        rebucket();
+
+        if (trimEnabled)
+            clampTrimToWindow();
+
+        repaint();
+    }
 
     // A live spectrum behind the impulse, drawn by the OWNER — handed the impulse's rectangle, so
     // whatever analyser look the owner's console already has is the look here too, one renderer
@@ -191,7 +244,9 @@ public:
         const float mid   = r.getCentreY();
         const float amp   = r.getHeight() * 0.46f;
         const int   n     = (int) peaks.size();
-        const float trimX = r.getX() + r.getWidth() * trimFraction;
+        const float trimX = r.getX() + r.getWidth()
+                                * (float) juce::jmin (1.0, (double) trimFraction * irMs
+                                                               / juce::jmax (1.0, effectiveMs()));
 
         g.setColour (juce::Colour (0x14ffffff));
         g.drawHorizontalLine ((int) mid, r.getX(), r.getRight());
@@ -248,7 +303,11 @@ public:
         }
     }
 
-    void mouseDown (const juce::MouseEvent& e) override { dragMode = pickMode (e.position); stepAnchor = e.position.y; applyDrag (e.position); repaint(); }
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (e.mods.isPopupMenu()) { showViewMenu(); return; }
+        dragMode = pickMode (e.position); stepAnchor = e.position.y; applyDrag (e.position); repaint();
+    }
     void mouseDrag (const juce::MouseEvent& e) override { applyDrag (e.position); repaint(); }
     void mouseUp   (const juce::MouseEvent& e) override { dragMode = Drag::none; hoverEl = pickMode (e.position); repaint(); }
     void mouseMove (const juce::MouseEvent& e) override { if (const auto h = pickMode (e.position); h != hoverEl) { hoverEl = h; repaint(); } }
@@ -297,10 +356,10 @@ private:
             return;
         for (const double ms : kTimeMarksMs)
         {
-            if (ms >= irMs)
+            if (ms >= effectiveMs())
                 break;
             const bool  key = (ms == 50.0 || ms == 100.0);
-            const float x   = r.getX() + r.getWidth() * (float) (ms / irMs);
+            const float x   = r.getX() + r.getWidth() * (float) (ms / effectiveMs());
             g.setColour (juce::Colour ((juce::uint32) (key ? 0x30ffffff : 0x12ffffff)));
             g.drawVerticalLine ((int) x, r.getY(), r.getBottom());
             g.setColour (juce::Colour ((juce::uint32) (key ? 0xaab2b2ba : 0x66808088)));
@@ -453,7 +512,9 @@ private:
         if (! trimInteractive || peaks.empty())
             return;
         const float w = (float) juce::jmax (1, getWidth());
-        float f = juce::jlimit (kMinTrim, 1.0f, x / w);
+        // The mouse walks the WINDOW; the fraction stays of the whole IR.
+        const double winOfFull = irMs > 0.0 ? effectiveMs() / irMs : 1.0;
+        float f = juce::jlimit (kMinTrim, 1.0f, (float) ((double) (x / w) * winOfFull));
 
         // The trim magnetises to the ms marks; hold the command key for a fine one.
         if (irMs > 0.0 && ! juce::ModifierKeys::getCurrentModifiers().isCommandDown())
@@ -461,9 +522,9 @@ private:
             float best = kSnapPx;
             for (const double ms : kTimeMarksMs)
             {
-                if (ms >= irMs)
+                if (ms >= effectiveMs())
                     break;
-                const float mx = w * (float) (ms / irMs);
+                const float mx = w * (float) (ms / effectiveMs());
                 if (std::abs (x - mx) < best)
                 {
                     best = std::abs (x - mx);
@@ -501,10 +562,22 @@ private:
         juce::AudioBuffer<float> buf (ch, n);
         reader->read (&buf, 0, n, 0, true, true);
 
-        peaks = irwave::computePeaks (buf, n, kBuckets);
-        trimFraction = 1.0f;
+        // The wave is kept as a mono max-abs span, so a view window can re-bucket at full
+        // resolution instead of stretching 512 whole-length buckets over fifty milliseconds.
+        waveAbs.assign ((size_t) n, 0.0f);
+        for (int c = 0; c < ch; ++c)
+        {
+            const float* d = buf.getReadPointer (c);
+            for (int k = 0; k < n; ++k)
+                waveAbs[(size_t) k] = juce::jmax (waveAbs[(size_t) k], std::abs (d[k]));
+        }
 
+        trimFraction = 1.0f;
         irMs = n / sr * 1000.0;
+
+        // The window survives an IR swap — comparing cabinets at 50 ms is exactly when the zoom
+        // earns its keep. A shot shorter than the window simply fills it (effectiveMs clamps).
+        rebucket();
         metrics = juce::String (juce::roundToInt (irMs)) + "ms  |  "
                 + juce::String (sr / 1000.0, 1) + "kHz  |  "
                 + juce::String (reader->bitsPerSample) + "-bit  |  "
@@ -514,6 +587,7 @@ private:
 
     juce::AudioFormatManager formatManager;
     std::vector<float>       peaks;
+    std::vector<float>       waveAbs;        // mono max-abs of the whole shot — the window re-buckets from it
     juce::Colour             accent { 0xff7c4dff };
     juce::String             metrics;
     float                    trimFraction    = 1.0f;
@@ -522,8 +596,87 @@ private:
     bool                     trimInteractive = false;
     bool                     trimEnabled     = false;
     double                   irMs            = 0.0;
+    double                   viewWindowMs    = 0.0;   // 0 = the whole IR
     Drag                     dragMode        = Drag::none;
     Drag                     hoverEl         = Drag::none;
+
+    // What the picture spans right now, in ms.
+    double effectiveMs() const { return viewWindowMs > 0.0 ? juce::jmin (viewWindowMs, irMs) : irMs; }
+
+    void rebucket()
+    {
+        if (waveAbs.empty() || irMs <= 0.0)
+            return;
+
+        const int n = juce::jmax (1, (int) ((double) waveAbs.size() * effectiveMs() / irMs));
+        peaks = irwave::computePeaks (waveAbs.data(), juce::jmin (n, (int) waveAbs.size()), kBuckets);
+    }
+
+    // The window's rule over the trim: a handle beyond the window's edge is pulled onto it, and
+    // the pull is a real parameter write.
+    void clampTrimToWindow()
+    {
+        if (viewWindowMs <= 0.0 || irMs <= 0.0)
+            return;
+
+        const float limit = (float) (effectiveMs() / irMs);
+
+        if (trimFraction > limit + 1.0e-4f)
+        {
+            trimFraction = juce::jlimit (kMinTrim, 1.0f, limit);
+            if (onTrimChanged) onTrimChanged (trimFraction);
+        }
+    }
+
+    // Right-click: the fixed windows (whichever the IR is long enough for), FULL, and the TRIM
+    // switch again — the menu is the picture's own gear.
+    void showViewMenu()
+    {
+        juce::PopupMenu m;
+
+        // Named so the two halves read as what they are: the fixed windows are TRIM, the handle
+        // on the picture is the MANUAL one.
+        m.addSectionHeader ("TRIM");
+
+        for (size_t i = 0; i < std::size (kTimeMarksMs); ++i)
+        {
+            const double ms = kTimeMarksMs[i];
+
+            // 20 ms stays a grid mark but not an offer — that deep the trim starts thinning the
+            // cab itself, not the room.
+            if (ms < 50.0)
+                continue;
+
+            // The two waypoints wear their character: 50 is the tight dry window, 200 is already
+            // mostly room. The rest sit between and say nothing.
+            auto label = juce::String ((int) ms) + " ms";
+            if ((int) ms == 50)  label += " - DRY";
+            if ((int) ms == 200) label += " - WET";
+
+            m.addItem ((int) i + 1, label, ms < irMs,
+                       juce::approximatelyEqual (viewWindowMs, ms));
+        }
+
+        m.addItem (100, "FULL", true, viewWindowMs <= 0.0);
+        m.addSeparator();
+        m.addItem (200, "MANUAL TRIM", trimInteractive, trimEnabled);
+
+        m.showMenuAsync (juce::PopupMenu::Options().withMousePosition(),
+                         [safe = juce::Component::SafePointer<IrWaveView> (this)] (int r)
+                         {
+                             if (safe == nullptr || r == 0)
+                                 return;
+
+                             if (r == 200)
+                             {
+                                 if (safe->onTrimToggled) safe->onTrimToggled (! safe->trimEnabled);
+                                 return;
+                             }
+
+                             safe->setViewWindow (r == 100 ? 0.0
+                                                           : kTimeMarksMs[(size_t) (r - 1)]);
+                         });
+    }
 
     bool  eqVisible = false;
     bool  hpfOn = false, lpfOn = false;
