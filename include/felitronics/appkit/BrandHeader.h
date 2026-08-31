@@ -36,6 +36,8 @@ struct BrandHeader : juce::Component
     bool updateDot = false;                    // orange badge next to the version when a newer release is stored
     int clickRight = 1 << 30;                  // set from the owner's resized(): end of the byline text
     std::function<void()> onVersionClick;      // wired by the orchestrator (the update/about window)
+    float wordmarkScale = 0.44f;               // type heights as a share of the header's own — a product
+    float bylineScale   = 0.26f;               // may set its wordmark louder without growing the marks
 
     bool linkArea (juce::Point<float> p) const { return p.x < (float) clickRight; }
 
@@ -67,8 +69,8 @@ struct BrandHeader : juce::Component
     float contentRight() const
     {
         const float h = (float) getHeight(), d = h * 0.86f;
-        const auto wf = juce::Font (juce::FontOptions().withHeight (h * 0.44f).withTypeface (wordmarkFace));
-        const auto bf = juce::Font (juce::FontOptions().withHeight (h * 0.26f).withTypeface (wordmarkFace));
+        const auto wf = juce::Font (juce::FontOptions().withHeight (h * wordmarkScale).withTypeface (wordmarkFace));
+        const auto bf = juce::Font (juce::FontOptions().withHeight (h * bylineScale).withTypeface (wordmarkFace));
         return h + 6.0f + d + 14.0f + textWidth (wf, product) + 14.0f + textWidth (bf, byline) + 8.0f;
     }
 
@@ -87,13 +89,13 @@ struct BrandHeader : juce::Component
         const float d = h * 0.86f;                                    // orbit mark (bigger)
         brand::drawOrbit (g, h + 6.0f + d * 0.5f, cy, d, hover);
         float x = h + 6.0f + d + 14.0f;
-        const auto wf = juce::Font (juce::FontOptions().withHeight (h * 0.44f).withTypeface (wordmarkFace));
+        const auto wf = juce::Font (juce::FontOptions().withHeight (h * wordmarkScale).withTypeface (wordmarkFace));
         const float baseline = cy + (wf.getAscent() - wf.getDescent()) * 0.5f;
         g.setFont (wf);
         g.setColour (hover ? juce::Colours::white : juce::Colour (0xffeef0f6));
         g.drawSingleLineText (product, juce::roundToInt (x), juce::roundToInt (baseline));
         x += textWidth (wf, product) + 14.0f;
-        const auto bf = juce::Font (juce::FontOptions().withHeight (h * 0.26f).withTypeface (wordmarkFace));
+        const auto bf = juce::Font (juce::FontOptions().withHeight (h * bylineScale).withTypeface (wordmarkFace));
         g.setFont (bf);
         g.setColour (hover ? brand::violet.brighter (0.3f) : brand::violet);
         g.drawSingleLineText (byline, juce::roundToInt (x), juce::roundToInt (baseline));
