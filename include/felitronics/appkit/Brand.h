@@ -73,6 +73,35 @@ inline void drawOrbitRings (juce::Graphics& g, float cx, float cy, float d, bool
     g.drawEllipse (cx - r3, cy - r3, r3 * 2.0f, r3 * 2.0f, 2.5f * s);
 }
 
+// The suite tip-jar — "Feed the cat". ONE canonical URL for the whole family (the same link the
+// darwinscat.com "beer"/{tip-jar} buttons resolve to — SiteConfig.tipJarUrl), so it can never
+// drift per product. Consumers surface it via VersionBadge's feed row (on by default) or their
+// own affordance; a product opts out by clearing VersionBadge::Config::feedUrl.
+inline const char* const feedTheCatUrl = "https://www.paypal.com/paypalme/alisalafoks";
+
+// The paw print for the "Feed the cat" affordance — where a cat ate, it leaves a print. A pad and
+// four fanned toes, drawn filled in `colour` (the hot accent, canonically); centred at (cx, cy),
+// diameter d, chunky enough to stay legible at popover-row size (~14 px).
+inline void drawPaw (juce::Graphics& g, float cx, float cy, float d, juce::Colour colour)
+{
+    const float s = d / 40.0f;
+    g.setColour (colour);
+    auto blob = [&] (float w, float h, float bx, float by, float angle)
+    {
+        juce::Path p;
+        p.addEllipse (-w * 0.5f, -h * 0.5f, w, h);
+        p.applyTransform (juce::AffineTransform::rotation (angle)
+                              .scaled (s)
+                              .translated (cx + (bx - 20.0f) * s, cy + (by - 20.0f) * s));
+        g.fillPath (p);
+    };
+    blob (19.0f, 14.0f, 20.0f, 26.0f, 0.0f);       // the pad
+    blob (6.6f, 9.4f, 9.0f, 15.0f, -0.55f);        // outer toes, tilted outward
+    blob (6.6f, 9.4f, 31.0f, 15.0f, 0.55f);
+    blob (6.6f, 9.4f, 15.6f, 9.6f, -0.18f);        // inner toes
+    blob (6.6f, 9.4f, 24.4f, 9.6f, 0.18f);
+}
+
 // The wordmark font — embedded Michroma (OFL, this repo's assets/) via the supplied typeface;
 // bold system fallback if null.
 inline juce::Font wordmarkFont (juce::Typeface::Ptr typeface, float height)
