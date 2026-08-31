@@ -323,12 +323,14 @@ private:
 
             r.removeFromTop (7);
             check.setBounds    (r.removeFromTop (26));
-            r.removeFromTop (4);
+            // The telemetry note hugs the button it describes; the dynamic result
+            // and Download rows land below the small print, and the feed block at
+            // the popup's foot keeps the whitespace between the two stories.
+            r.removeFromTop (2);
+            note.setBounds     (r.removeFromTop (14));
+            r.removeFromTop (2);
             result.setBounds   (r.removeFromTop (18));
             download.setBounds (r.removeFromTop (16));
-            // The telemetry note belongs to the update block above it — with the
-            // feed block at the popup's foot, the whitespace splits the two stories.
-            note.setBounds     (r.removeFromTop (14));
             if (feed.isVisible())
             {
                 auto rowF = r.removeFromBottom (20);

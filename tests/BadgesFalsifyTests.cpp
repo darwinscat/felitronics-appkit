@@ -141,6 +141,8 @@ int main()
             "feed link opens the ONE canonical suite tip-jar URL");
         panel.resized();
         ok (! panel.pawArea.isEmpty(), "a visible feed row lays out a paw to draw");
+        ok (panel.note.getY() - panel.check.getBottom() <= 2,
+            "the telemetry note hugs the update button it describes");
         ok (panel.note.getBottom() <= panel.feedPrompt.getY(),
             "the telemetry note clings to the update block, not to the cat");
         ok (panel.feedPrompt.getBottom() <= panel.feed.getY(),
