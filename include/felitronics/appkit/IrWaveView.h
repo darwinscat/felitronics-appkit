@@ -156,6 +156,10 @@ public:
     juce::Colour lpfTint = brand::violet;
     juce::Colour cutFill = brand::violet;
 
+    // The impulse envelope's own colour. Transparent = follow the accent, as it always did — a
+    // consumer may give the wave a voice apart from the curve's.
+    juce::Colour waveTint { 0x00000000 };
+
     void setFromMemory (const void* data, size_t size)
     {
         load (formatManager.createReaderFor (std::make_unique<juce::MemoryInputStream> (data, size, false)));
@@ -269,7 +273,8 @@ public:
             const float x = r.getX() + r.getWidth() * (float) i / (float) n;
             const float h = (ampLog ? irwave::dbHeightFactor (peaks[(size_t) i], dbFloor)
                                     : peaks[(size_t) i]) * amp;
-            g.setColour (x <= trimX ? accent.withAlpha (0.85f) : juce::Colour (0x33ffffff));
+            g.setColour (x <= trimX ? (waveTint.getAlpha() > 0 ? waveTint : accent).withAlpha (0.85f)
+                                    : juce::Colour (0x33ffffff));
             g.drawLine (x, mid - h, x, mid + h, 1.0f);
         }
 
