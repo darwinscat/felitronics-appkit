@@ -18,6 +18,8 @@
 // Modules: juce_audio_utils (formats + gui).
 //==============================================================================
 
+#include <felitronics/appkit/Brand.h>
+
 #include <juce_audio_utils/juce_audio_utils.h>
 
 #include <cmath>
@@ -41,13 +43,17 @@ namespace irwave
         return fMin * std::pow (fMax / fMin, t);
     }
 
-    // 2nd-order HPF/LPF magnitude product: ~1 in the passband, ~0.707 at a corner, -> 0 deep in a
-    // stopband. The shape the curve draws.
-    inline float eqMagnitude (float f, bool hpfOn, float hpfHz, bool lpfOn, float lpfHz)
+    // Butterworth HPF/LPF magnitude product at the given orders (slope dB/oct / 6): ~1 in the
+    // passband, ~0.707 at a corner, -> 0 deep in a stopband. The closed form is exact for a
+    // Butterworth cascade of any order, so the curve draws the slope the sound actually has.
+    inline float eqMagnitude (float f, bool hpfOn, float hpfHz, int hpfSlopeDb,
+                              bool lpfOn, float lpfHz, int lpfSlopeDb)
     {
         float m = 1.0f;
-        if (hpfOn) { const float r = hpfHz / f; m *= 1.0f / std::sqrt (1.0f + r * r * r * r); }
-        if (lpfOn) { const float r = f / lpfHz; m *= 1.0f / std::sqrt (1.0f + r * r * r * r); }
+        if (hpfOn) { const float r = hpfHz / f;
+                     m *= 1.0f / std::sqrt (1.0f + std::pow (r, (float) hpfSlopeDb / 3.0f)); }
+        if (lpfOn) { const float r = f / lpfHz;
+                     m *= 1.0f / std::sqrt (1.0f + std::pow (r, (float) lpfSlopeDb / 3.0f)); }
         return m;
     }
 
@@ -107,6 +113,14 @@ public:
     std::function<void (float)>        onTrimChanged;    // fraction to keep, (0,1]
     std::function<void (bool, float)>  onHpfChanged;     // (on, Hz)
     std::function<void (bool, float)>  onLpfChanged;     // (on, Hz)
+    std::function<void (int)>          onHpfSlopeStep;   // slope-ladder notches, +1 = steeper
+    std::function<void (int)>          onLpfSlopeStep;   //   (vertical drag on the cut line, down = steeper)
+
+    // Each cut wears its own colour on its line, and the cut fill is the consumer's to tint —
+    // defaults follow the accent so a one-colour picture stays a one-colour picture.
+    juce::Colour hpfTint = brand::orange;
+    juce::Colour lpfTint = brand::violet;
+    juce::Colour cutFill = brand::violet;
 
     void setFromMemory (const void* data, size_t size)
     {
@@ -149,6 +163,13 @@ public:
     {
         hpfOn = hOn; hpfHz = hHz; hpfMin = hMin; hpfMax = hMax;
         lpfOn = lOn; lpfHz = lHz; lpfMin = lMin; lpfMax = lMax;
+        repaint();
+    }
+
+    // The cuts' steepness, in dB/oct — drawn exactly, and stepped by the vertical drag ladder.
+    void setSlopes (int hpfDb, int lpfDb)
+    {
+        hpfSlopeDb = hpfDb; lpfSlopeDb = lpfDb;
         repaint();
     }
 
@@ -227,7 +248,7 @@ public:
         }
     }
 
-    void mouseDown (const juce::MouseEvent& e) override { dragMode = pickMode (e.position); applyDrag (e.position); repaint(); }
+    void mouseDown (const juce::MouseEvent& e) override { dragMode = pickMode (e.position); stepAnchor = e.position.y; applyDrag (e.position); repaint(); }
     void mouseDrag (const juce::MouseEvent& e) override { applyDrag (e.position); repaint(); }
     void mouseUp   (const juce::MouseEvent& e) override { dragMode = Drag::none; hoverEl = pickMode (e.position); repaint(); }
     void mouseMove (const juce::MouseEvent& e) override { if (const auto h = pickMode (e.position); h != hoverEl) { hoverEl = h; repaint(); } }
@@ -247,7 +268,8 @@ private:
     float xForFreq (float f, juce::Rectangle<float> r) const { return irwave::xForFreq (f, r.getX(), r.getWidth(), kFMin, kFMax); }
     float freqForX (float x, juce::Rectangle<float> r) const { return irwave::freqForX (x, r.getX(), r.getWidth(), kFMin, kFMax); }
     float curveY   (float mag, juce::Rectangle<float> r) const { return irwave::eqCurveY (mag, r.getY(), r.getHeight()); }
-    float magAt    (float f) const { return irwave::eqMagnitude (f, hpfOn, hpfHz, lpfOn, lpfHz); }
+    float magAt    (float f) const { return irwave::eqMagnitude (f, hpfOn, hpfHz, hpfSlopeDb,
+                                                                 lpfOn, lpfHz, lpfSlopeDb); }
 
     void drawDbGrid (juce::Graphics& g, juce::Rectangle<float> r, float mid, float amp)
     {
@@ -299,30 +321,40 @@ private:
             if (x == 0) p.startNewSubPath (r.getX() + (float) x, y);
             else        p.lineTo          (r.getX() + (float) x, y);
         }
+        // What the cuts take away, filled the consoles' way: the tint densest at the passband
+        // line, fading to nothing at the bottom — the DEVIATION from flat, not the passband.
+        const float y0 = curveY (1.0f, r);
         juce::Path fill = p;
-        fill.lineTo (r.getRight(), r.getBottom());
-        fill.lineTo (r.getX(),     r.getBottom());
+        fill.lineTo (r.getRight(), y0);
+        fill.lineTo (r.getX(),     y0);
         fill.closeSubPath();
-        const float gy = r.getY() + r.getHeight() * 0.58f;
-        g.setGradientFill (juce::ColourGradient (accent.withAlpha (0.22f), r.getCentreX(), gy,
-                                                 accent.withAlpha (0.0f),  r.getCentreX(), r.getBottom(), false));
+        g.setGradientFill (juce::ColourGradient (cutFill.withAlpha (0.0f),  0.0f, r.getBottom(),
+                                                 cutFill.withAlpha (0.40f), 0.0f, y0, false));
         g.fillPath (fill);
 
-        g.setColour (accent.withAlpha (0.5f));
-        g.strokePath (p, juce::PathStrokeType (1.5f));
+        // The consoles' composite stroke: the accent with a faint glow — stacked strokes, no blur.
+        g.setColour (accent.withAlpha (0.12f));
+        g.strokePath (p, juce::PathStrokeType (5.0f));
+        g.setColour (accent.withAlpha (0.22f));
+        g.strokePath (p, juce::PathStrokeType (2.5f));
+        g.setColour (accent);
+        g.strokePath (p, juce::PathStrokeType (1.5f, juce::PathStrokeType::curved,
+                                               juce::PathStrokeType::rounded));
 
-        if (hpfOn) drawHandle (g, r, hpfHz);
-        if (lpfOn) drawHandle (g, r, lpfHz);
+        if (hpfOn) drawCutLine (g, r, hpfHz, hpfTint, dragMode == Drag::hpf || hoverEl == Drag::hpf);
+        if (lpfOn) drawCutLine (g, r, lpfHz, lpfTint, dragMode == Drag::lpf || hoverEl == Drag::lpf);
     }
 
-    void drawHandle (juce::Graphics& g, juce::Rectangle<float> r, float f)
+    // A cut is a PLACE, not an amount — its handle is the whole vertical line, the consoles'
+    // dashed grammar, grabbable anywhere along its height.
+    void drawCutLine (juce::Graphics& g, juce::Rectangle<float> r, float f,
+                      juce::Colour tint, bool lit)
     {
         const float x = xForFreq (f, r);
-        const float y = curveY (magAt (f), r);
-        g.setColour (accent.withAlpha (0.85f));
-        g.fillEllipse (x - 4.5f, y - 4.5f, 9.0f, 9.0f);
-        g.setColour (juce::Colour (0x99141417));
-        g.drawEllipse (x - 4.5f, y - 4.5f, 9.0f, 9.0f, 1.2f);
+        const float dashes[] = { 5.0f, 4.0f };
+        g.setColour (tint.withAlpha (lit ? 1.0f : 0.65f));
+        g.drawDashedLine ({ x, r.getY() + 2.0f, x, r.getBottom() - 2.0f },
+                          dashes, 2, lit ? 2.2f : 1.4f);
     }
 
     // The value in a pill beside the hovered or dragged handle: Hz, kHz, ms.
@@ -388,15 +420,31 @@ private:
             case Drag::trim: setTrimFromMouse (pos.x); break;
             case Drag::hpf:
                 hpfHz = juce::jlimit (hpfMin, hpfMax, freqForX (pos.x, r));
+                workLadder (pos.y, onHpfSlopeStep);
                 repaint();
                 if (onHpfChanged) onHpfChanged (true, hpfHz);
                 break;
             case Drag::lpf:
                 lpfHz = juce::jlimit (lpfMin, lpfMax, freqForX (pos.x, r));
+                workLadder (pos.y, onLpfSlopeStep);
                 repaint();
                 if (onLpfChanged) onLpfChanged (true, lpfHz);
                 break;
             case Drag::none: break;
+        }
+    }
+
+    // The vertical axis of a cut drag works the slope ladder, the consoles' gesture: every stepPx
+    // of travel is one notch, down = steeper — the cut digs in as the hand digs down.
+    void workLadder (float y, const std::function<void (int)>& step)
+    {
+        constexpr float stepPx = 28.0f;
+        const int steps = (int) ((y - stepAnchor) / stepPx);
+
+        if (steps != 0 && step != nullptr)
+        {
+            stepAnchor += (float) steps * stepPx;
+            step (steps);
         }
     }
 
@@ -481,6 +529,8 @@ private:
     bool  hpfOn = false, lpfOn = false;
     float hpfHz = 80.0f,   hpfMin = 30.0f,   hpfMax = 180.0f;
     float lpfHz = 7000.0f, lpfMin = 4000.0f, lpfMax = 12000.0f;
+    int   hpfSlopeDb = 12, lpfSlopeDb = 12;
+    float stepAnchor = 0.0f;   // the slope ladder's last notch, in view y
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IrWaveView)
 };
