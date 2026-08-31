@@ -249,11 +249,12 @@ private:
                     feedPrompt.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
                     addAndMakeVisible (feedPrompt);
                 }
+                const juce::URL feedLink = brand::feedTheCatLink (config.productName, config.feedUrl);
                 feed.setButtonText (config.feedLabel);
-                feed.setURL (juce::URL (config.feedUrl));
+                feed.setURL (feedLink);
                 feed.setFont (juce::FontOptions (12.0f, juce::Font::bold), false, juce::Justification::centredLeft);
                 feed.setColour (juce::HyperlinkButton::textColourId, config.accentB);
-                feed.setTooltip (config.feedUrl);
+                feed.setTooltip (feedLink.toString (true));
                 feed.changeWidthToFitText();
                 addAndMakeVisible (feed);
             }
