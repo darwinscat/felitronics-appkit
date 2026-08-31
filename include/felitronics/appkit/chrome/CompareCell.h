@@ -38,6 +38,7 @@ public:
     RegisterButton() = default;
 
     ChromeTheme theme = ChromeTheme::makeDefaultDark();   // the owning cell overwrites with the consumer theme
+    float textHeight  = 12.5f;                            // the letter's size — a product may set it louder
 
     void setRegisterIndex (int i)                        { index = i; }
     static juce::String dragPrefix()                     { return "felitronics.appkit.chrome/register:"; }
@@ -93,7 +94,7 @@ public:
         }
         g.setColour (getToggleState() ? theme.activeText
                                       : highlighted ? theme.text : theme.textDim);
-        g.setFont (juce::Font (juce::FontOptions (12.5f).withStyle ("Bold")));
+        g.setFont (juce::Font (juce::FontOptions (textHeight).withStyle ("Bold")));
         g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred);
 
         if (edited)
