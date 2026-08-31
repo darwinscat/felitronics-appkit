@@ -73,13 +73,13 @@ inline void drawOrbitRings (juce::Graphics& g, float cx, float cy, float d, bool
     g.drawEllipse (cx - r3, cy - r3, r3 * 2.0f, r3 * 2.0f, 2.5f * s);
 }
 
-// The suite tip-jar — "Feed the cat". ONE canonical URL for the whole family (the same link the
+// The suite tip-jar — "Feed the Cat". ONE canonical URL for the whole family (the same link the
 // darwinscat.com "beer"/{tip-jar} buttons resolve to — SiteConfig.tipJarUrl), so it can never
 // drift per product. Consumers surface it via VersionBadge's feed row (on by default) or their
 // own affordance; a product opts out by clearing VersionBadge::Config::feedUrl.
 inline const char* const feedTheCatUrl = "https://www.paypal.com/paypalme/alisalafoks";
 
-// The paw print for the "Feed the cat" affordance — where a cat ate, it leaves a print. A pad and
+// The paw print for the "Feed the Cat" affordance — where a cat ate, it leaves a print. A pad and
 // four fanned toes, drawn filled in `colour` (the hot accent, canonically); centred at (cx, cy),
 // diameter d, chunky enough to stay legible at popover-row size (~14 px).
 inline void drawPaw (juce::Graphics& g, float cx, float cy, float d, juce::Colour colour)

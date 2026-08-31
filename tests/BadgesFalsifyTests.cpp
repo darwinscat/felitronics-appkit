@@ -134,7 +134,7 @@ int main()
 
         VersionBadge::Panel panel (badge, cfg, "Standalone", nullptr);
         ok (panel.feed.getParentComponent() == &panel, "default config attaches the feed link");
-        ok (panel.feed.getButtonText() == "Feed the cat", "feed link carries the default label");
+        ok (panel.feed.getButtonText() == "Feed the Cat", "feed link carries the default label");
         ok (panel.feedPrompt.getParentComponent() == &panel && panel.feedPrompt.getText() == "Like the app?",
             "the default block leads with the quiet prompt line");
         ok (panel.feed.getURL().toString (false) == juce::String (brand::feedTheCatUrl),
