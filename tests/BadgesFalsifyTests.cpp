@@ -115,15 +115,57 @@ int main()
         const auto noCore = versionConfig ({});
         VersionBadge badge (c, noCore, "Standalone");
         VersionBadge::Panel panel (badge, noCore, "Standalone", nullptr);
-        ok (panel.getWidth() == 300 && panel.getHeight() == 232, "empty coreVersion removes exactly one popup row");
+        ok (panel.getWidth() == 300 && panel.getHeight() == 268, "empty coreVersion removes exactly one popup row");
         ok (panel.coreLink.getParentComponent() == nullptr, "empty coreVersion does not attach a core link");
         ok (paintedAlphaPixels (panel) > 0, "empty-core panel paints nonblank headless content");
 
         const auto withCore = versionConfig ("v0.8.0-3-gabc1234");
         VersionBadge badge2 (c, withCore, "Standalone");
         VersionBadge::Panel panel2 (badge2, withCore, "Standalone", nullptr);
-        ok (panel2.getWidth() == 300 && panel2.getHeight() == 248, "non-empty coreVersion keeps the dependency row");
+        ok (panel2.getWidth() == 300 && panel2.getHeight() == 284, "non-empty coreVersion keeps the dependency row");
         ok (panel2.coreLink.getParentComponent() == &panel2, "non-empty coreVersion attaches a core link");
+    }
+
+    group ("VersionBadge feed row: on by default at the canonical URL, gone when cleared");
+    {
+        BadgeChecker c ("1.2.3");
+        const auto cfg = versionConfig ({});
+        VersionBadge badge (c, cfg, "Standalone");
+
+        VersionBadge::Panel panel (badge, cfg, "Standalone", nullptr);
+        ok (panel.feed.getParentComponent() == &panel, "default config attaches the feed link");
+        ok (panel.feed.getButtonText() == "Feed the cat", "feed link carries the default label");
+        ok (panel.feedPrompt.getParentComponent() == &panel && panel.feedPrompt.getText() == "Like the app?",
+            "the default block leads with the quiet prompt line");
+        ok (panel.feed.getURL().toString (false) == juce::String (brand::feedTheCatUrl),
+            "feed link opens the ONE canonical suite tip-jar URL");
+        panel.resized();
+        ok (! panel.pawArea.isEmpty(), "a visible feed row lays out a paw to draw");
+        ok (panel.note.getY() - panel.check.getBottom() <= 2,
+            "the telemetry note hugs the update button it describes");
+        ok (panel.note.getBottom() <= panel.feedPrompt.getY(),
+            "the telemetry note clings to the update block, not to the cat");
+        ok (panel.feedPrompt.getBottom() <= panel.feed.getY(),
+            "the prompt line leads and the paw row closes the popup");
+        ok (paintedAlphaPixels (panel) > 0, "feed-row panel paints nonblank headless content");
+
+        auto muted = cfg;
+        muted.feedUrl = {};
+        VersionBadge badge2 (c, muted, "Standalone");
+        VersionBadge::Panel panel2 (badge2, muted, "Standalone", nullptr);
+        ok (panel2.feed.getParentComponent() == nullptr, "an empty feedUrl attaches no feed link");
+        ok (panel2.feedPrompt.getParentComponent() == nullptr, "an empty feedUrl drops the prompt line too");
+        ok (panel2.getHeight() == 232, "an empty feedUrl shrinks the popup back by the whole block");
+
+        auto noPrompt = cfg;
+        noPrompt.feedPrompt = {};
+        VersionBadge badge3 (c, noPrompt, "Standalone");
+        VersionBadge::Panel panel3 (badge3, noPrompt, "Standalone", nullptr);
+        ok (panel3.feed.getParentComponent() == &panel3 && panel3.feedPrompt.getParentComponent() == nullptr,
+            "an empty feedPrompt keeps the paw row and drops only the prompt");
+        ok (panel3.getHeight() == 252, "prompt-less block is exactly one 16 px line shorter");
+        panel2.resized();
+        ok (panel2.pawArea.isEmpty(), "no feed row, no paw");
     }
 
     group ("VersionBadge SafePointer paths no-op after the owner badge is gone");

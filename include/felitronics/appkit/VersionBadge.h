@@ -73,6 +73,14 @@ public:
         juce::Colour accentHover { 0xff9778ff };   // version when outdated; hyperlink text
         juce::Colour accentB     { 0xffff8822 };   // the "new" dot; the update line + Download link
         juce::Colour text        { 0xffd8d8d8 };   // the popover wordmark
+
+        // The "Feed the cat" block at the popover's foot: a quiet one-line prompt, then a paw
+        // print + hyperlink opening the family tip jar. ON by default so every product inherits
+        // it with an appkit bump; an empty feedUrl hides the whole block and the popup shrinks
+        // back, an empty feedPrompt drops just the prompt line.
+        juce::String feedPrompt = "Like the app?";
+        juce::String feedLabel  = "Feed the cat";
+        juce::String feedUrl    = brand::feedTheCatUrl;
     };
 
     VersionBadge (UpdateChecker& uc, Config cfg, juce::String pluginFormat)
@@ -231,6 +239,25 @@ private:
             download.setColour (juce::HyperlinkButton::textColourId, config.accentB);
             addChildComponent (download);   // hidden until an update is actually available (then setURL + setVisible)
 
+            if (config.feedUrl.isNotEmpty())
+            {
+                if (config.feedPrompt.isNotEmpty())
+                {
+                    feedPrompt.setText (config.feedPrompt, juce::dontSendNotification);
+                    feedPrompt.setFont (juce::FontOptions (11.0f));
+                    feedPrompt.setJustificationType (juce::Justification::centredLeft);
+                    feedPrompt.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
+                    addAndMakeVisible (feedPrompt);
+                }
+                feed.setButtonText (config.feedLabel);
+                feed.setURL (juce::URL (config.feedUrl));
+                feed.setFont (juce::FontOptions (12.0f, juce::Font::bold), false, juce::Justification::centredLeft);
+                feed.setColour (juce::HyperlinkButton::textColourId, config.accentB);
+                feed.setTooltip (config.feedUrl);
+                feed.changeWidthToFitText();
+                addAndMakeVisible (feed);
+            }
+
             note.setText ("Opt-in. Sends only product + version.", juce::dontSendNotification);
             note.setFont (juce::FontOptions (10.0f));
             note.setColour (juce::Label::textColourId, juce::Colour (0xff60606a));
@@ -240,7 +267,10 @@ private:
             if (chk.updateAvailable())
                 showUpdate (chk.storedLatest(), juce::URL (releasesPage));
 
-            setSize (300, hasCore ? 248 : 232);   // one 16 px row less without the dependency line
+            const int feedRows = config.feedUrl.isNotEmpty()            // the tip-jar block, when configured:
+                                   ? 20 + (config.feedPrompt.isNotEmpty() ? 16 : 0)   // paw row + prompt line
+                                   : 0;
+            setSize (300, (hasCore ? 248 : 232) + feedRows);   // one 16 px row less without the dependency line
         }
 
         // Brand title: [mark] <productName>, mirroring the window header. Drawn (not a Label) so
@@ -262,6 +292,10 @@ private:
             g.setColour (config.text);
             const float baseline = cy + (wf.getAscent() - wf.getDescent()) * 0.5f;
             g.drawSingleLineText (config.productName, juce::roundToInt (a.getX() + d + 7.0f), juce::roundToInt (baseline));
+
+            if (! pawArea.isEmpty())   // the "Feed the cat" row's paw print, matching its link colour
+                brand::drawPaw (g, pawArea.toFloat().getCentreX(), pawArea.toFloat().getCentreY(),
+                                pawArea.toFloat().getHeight(), config.accentB);
         }
 
         void resized() override
@@ -289,10 +323,22 @@ private:
 
             r.removeFromTop (7);
             check.setBounds    (r.removeFromTop (26));
-            r.removeFromTop (4);
+            // The telemetry note hugs the button it describes; the dynamic result
+            // and Download rows land below the small print, and the feed block at
+            // the popup's foot keeps the whitespace between the two stories.
+            r.removeFromTop (2);
+            note.setBounds     (r.removeFromTop (14));
+            r.removeFromTop (2);
             result.setBounds   (r.removeFromTop (18));
             download.setBounds (r.removeFromTop (16));
-            note.setBounds     (r.removeFromBottom (14));
+            if (feed.isVisible())
+            {
+                auto rowF = r.removeFromBottom (20);
+                pawArea = rowF.removeFromLeft (15).reduced (0, 3);
+                feed.setBounds (rowF.withTrimmedLeft (4).removeFromLeft (feed.getWidth()));
+                if (feedPrompt.isVisible())
+                    feedPrompt.setBounds (r.removeFromBottom (16));
+            }
         }
 
         void runCheck()
@@ -353,8 +399,9 @@ private:
         const juce::String    releasesPage;                 // checker.releasesPageUrl(), copied likewise (immutable derivation of the slug)
         juce::Typeface::Ptr   brandTypeface;                // the brand face for the title (from the editor; bold fallback if null)
         juce::Rectangle<int>  titleArea;                    // where paint() draws [mark] <productName>
-        juce::Label           result, note, tailA, tailB, line3, coreLead, coreTail;
-        juce::HyperlinkButton link, download, verLink, commitLink, coreLink;
+        juce::Rectangle<int>  pawArea;                      // where paint() draws the feed row's paw print
+        juce::Label           result, note, tailA, tailB, line3, coreLead, coreTail, feedPrompt;
+        juce::HyperlinkButton link, download, verLink, commitLink, coreLink, feed;
         juce::TextButton      check;
     };
 
