@@ -137,8 +137,9 @@ int main()
         ok (panel.feed.getButtonText() == "Feed the Cat", "feed link carries the default label");
         ok (panel.feedPrompt.getParentComponent() == &panel && panel.feedPrompt.getText() == "Like the app?",
             "the default block leads with the quiet prompt line");
-        ok (panel.feed.getURL().toString (false) == juce::String (brand::feedTheCatUrl),
-            "feed link opens the ONE canonical suite tip-jar URL");
+        ok (panel.feed.getURL().toString (true)
+                == juce::String (brand::feedTheCatUrl) + "?from=badgegate",
+            "feed link opens the canonical hop, signed with the product slug");
         panel.resized();
         ok (! panel.pawArea.isEmpty(), "a visible feed row lays out a paw to draw");
         ok (panel.note.getY() - panel.check.getBottom() <= 2,
@@ -166,6 +167,21 @@ int main()
         ok (panel3.getHeight() == 252, "prompt-less block is exactly one 16 px line shorter");
         panel2.resized();
         ok (panel2.pawArea.isEmpty(), "no feed row, no paw");
+    }
+
+    group ("brand::feedTheCatLink signs the hop with a folded product slug");
+    {
+        ok (brand::feedTheCatLink ("LooperCat").toString (true)
+                == juce::String (brand::feedTheCatUrl) + "?from=loopercat",
+            "product name folds to a bare lowercase slug");
+        ok (brand::feedTheCatLink ("Badge Gate 2!").toString (true)
+                == juce::String (brand::feedTheCatUrl) + "?from=badgegate2",
+            "spaces and punctuation drop out of the slug");
+        ok (brand::feedTheCatLink ("\u00e9\u00e9").toString (true) == juce::String (brand::feedTheCatUrl),
+            "a name with no sluggable characters leaves the hop unsigned");
+        ok (brand::feedTheCatLink ("LooperCat", "https://example.invalid/hop").toString (true)
+                == "https://example.invalid/hop?from=loopercat",
+            "a custom base keeps the signature");
     }
 
     group ("VersionBadge SafePointer paths no-op after the owner badge is gone");

@@ -73,11 +73,25 @@ inline void drawOrbitRings (juce::Graphics& g, float cx, float cy, float d, bool
     g.drawEllipse (cx - r3, cy - r3, r3 * 2.0f, r3 * 2.0f, 2.5f * s);
 }
 
-// The suite tip-jar — "Feed the Cat". ONE canonical URL for the whole family (the same link the
-// darwinscat.com "beer"/{tip-jar} buttons resolve to — SiteConfig.tipJarUrl), so it can never
-// drift per product. Consumers surface it via VersionBadge's feed row (on by default) or their
-// own affordance; a product opts out by clearing VersionBadge::Config::feedUrl.
-inline const char* const feedTheCatUrl = "https://www.paypal.com/paypalme/alisalafoks";
+// The suite tip-jar — "Feed the Cat". ONE canonical URL for the whole family: the site's
+// steerable hop, which 302s to wherever SiteConfig.tipJarUrl points today. Deliberately NOT the
+// payment page itself — a URL baked into a shipped binary lives for years, and the hop lets the
+// destination change server-side without re-teaching a single old build. Consumers surface it
+// via VersionBadge's feed row (on by default) or their own affordance; a product opts out by
+// clearing VersionBadge::Config::feedUrl.
+inline const char* const feedTheCatUrl = "https://darwinscat.com/feed-the-cat";
+
+// The click-through for a product's "Feed the Cat" affordance: the base URL plus the product's
+// signature — ?from=<slug> — so the server's access log can tell which app fed the cat. The slug
+// is the product name folded to bare [a-z0-9]; the parameter never reaches the payment page (the
+// hop logs it and redirects clean).
+inline juce::URL feedTheCatLink (const juce::String& productName, const juce::String& baseUrl = feedTheCatUrl)
+{
+    const juce::String slug = productName.toLowerCase()
+                                         .retainCharacters ("abcdefghijklmnopqrstuvwxyz0123456789");
+    juce::URL url (baseUrl);
+    return slug.isEmpty() ? url : url.withParameter ("from", slug);
+}
 
 // The paw print for the "Feed the Cat" affordance — where a cat ate, it leaves a print. A pad and
 // four fanned toes, drawn filled in `colour` (the hot accent, canonically); centred at (cx, cy),
