@@ -142,6 +142,13 @@ public:
     std::function<void (int)>          onHpfSlopeStep;   // slope-ladder notches, +1 = steeper
     std::function<void (int)>          onLpfSlopeStep;   //   (vertical drag on the cut line, down = steeper)
     std::function<void (bool)>         onTrimToggled;    // the right-click menu's TRIM entry
+    std::function<void()>              onMenuRequested;  // set by a consumer that owns the trim story:
+                                                         //   right-click calls this instead of the built-in menu
+
+    // The servo thirds: while the hand drags the trim, the window follows so the handle keeps to
+    // the middle band — past the left third it zooms in (fine milliseconds near zero), past the
+    // right two-thirds it zooms out (always more room to pull). Stays where the drag left it.
+    bool trimServoZoom = true;
 
     // Each cut wears its own colour on its line, and the cut fill is the consumer's to tint —
     // defaults follow the accent so a one-colour picture stays a one-colour picture.
@@ -168,8 +175,9 @@ public:
     }
 
     void setTrimInteractive (bool shouldBeInteractive) { trimInteractive = shouldBeInteractive; updateCursor(); repaint(); }
-    void setTrimFraction (float fraction01)            { trimFraction = juce::jlimit (kMinTrim, 1.0f, fraction01); repaint(); }
+    void setTrimFraction (float fraction01)            { trimFraction = juce::jlimit (minTrimFraction(), 1.0f, fraction01); repaint(); }
     float getTrimFraction() const                       { return trimFraction; }
+    double lengthMs() const                             { return irMs; }
     void setEqVisible (bool shouldShow)                { eqVisible = shouldShow; updateCursor(); repaint(); }
 
     // The TRIM handle (and trimming) only show and work while the owner's TRIM is on.
@@ -305,7 +313,12 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        if (e.mods.isPopupMenu()) { showViewMenu(); return; }
+        if (e.mods.isPopupMenu())
+        {
+            if (onMenuRequested != nullptr) onMenuRequested();
+            else                            showViewMenu();
+            return;
+        }
         dragMode = pickMode (e.position); stepAnchor = e.position.y; applyDrag (e.position); repaint();
     }
     void mouseDrag (const juce::MouseEvent& e) override { applyDrag (e.position); repaint(); }
@@ -316,7 +329,16 @@ public:
 private:
     enum class Drag { none, trim, hpf, lpf };
 
-    static constexpr float kMinTrim = 0.02f;
+    // The trim's floor is MILLISECONDS, not a share: 2% of a long shot forbade the extreme cuts
+    // (a 1.3 s cab IR could not go under ~26 ms), while 2 ms is where the speaker itself still
+    // lives — the servo lets the hand actually get there.
+    static constexpr double kMinTrimMs = 2.0;
+    static constexpr float  kMinTrim   = 0.001f;   // last-resort clamp when the length is unknown
+
+    float minTrimFraction() const
+    {
+        return irMs > 0.0 ? juce::jmax ((float) (kMinTrimMs / irMs), 1.0e-4f) : kMinTrim;
+    }
     static constexpr float kFMin    = 20.0f;
     static constexpr float kFMax    = 20000.0f;
     static constexpr float kGrabPx  = 14.0f;
@@ -514,7 +536,7 @@ private:
         const float w = (float) juce::jmax (1, getWidth());
         // The mouse walks the WINDOW; the fraction stays of the whole IR.
         const double winOfFull = irMs > 0.0 ? effectiveMs() / irMs : 1.0;
-        float f = juce::jlimit (kMinTrim, 1.0f, (float) ((double) (x / w) * winOfFull));
+        float f = juce::jlimit (minTrimFraction(), 1.0f, (float) ((double) (x / w) * winOfFull));
 
         // The trim magnetises to the ms marks; hold the command key for a fine one.
         if (irMs > 0.0 && ! juce::ModifierKeys::getCurrentModifiers().isCommandDown())
@@ -528,7 +550,7 @@ private:
                 if (std::abs (x - mx) < best)
                 {
                     best = std::abs (x - mx);
-                    f    = juce::jlimit (kMinTrim, 1.0f, (float) (ms / irMs));
+                    f    = juce::jlimit (minTrimFraction(), 1.0f, (float) (ms / irMs));
                 }
             }
         }
@@ -536,6 +558,27 @@ private:
         if (std::abs (f - trimFraction) < 1.0e-4f)
             return;
         trimFraction = f;
+
+        // The servo thirds (see the field above): continuous, floored at 20 ms, capped at the
+        // whole shot; a window that leaves the cap collapses back to FULL.
+        if (trimServoZoom && irMs > 0.0)
+        {
+            const double ms  = (double) trimFraction * irMs;
+            const double win = effectiveMs();
+            double newWin = win;
+
+            if      (ms < win / 3.0)       newWin = ms * 3.0;
+            else if (ms > win * 2.0 / 3.0) newWin = ms * 1.5;
+
+            newWin = juce::jlimit (20.0, irMs, newWin);
+
+            if (! juce::approximatelyEqual (newWin, win))
+            {
+                viewWindowMs = newWin >= irMs ? 0.0 : newWin;
+                rebucket();
+            }
+        }
+
         repaint();
         if (onTrimChanged) onTrimChanged (f);
     }
@@ -623,7 +666,7 @@ private:
 
         if (trimFraction > limit + 1.0e-4f)
         {
-            trimFraction = juce::jlimit (kMinTrim, 1.0f, limit);
+            trimFraction = juce::jlimit (minTrimFraction(), 1.0f, limit);
             if (onTrimChanged) onTrimChanged (trimFraction);
         }
     }
