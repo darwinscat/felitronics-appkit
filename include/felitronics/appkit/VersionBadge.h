@@ -79,7 +79,7 @@ public:
         // it with an appkit bump; an empty feedUrl hides the whole block and the popup shrinks
         // back, an empty feedPrompt drops just the prompt line.
         juce::String feedPrompt = "Like the app?";
-        juce::String feedLabel  = "Feed the cat";
+        juce::String feedLabel  = "Feed the Cat";
         juce::String feedUrl    = brand::feedTheCatUrl;
     };
 
