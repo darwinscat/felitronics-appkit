@@ -115,14 +115,14 @@ int main()
         const auto noCore = versionConfig ({});
         VersionBadge badge (c, noCore, "Standalone");
         VersionBadge::Panel panel (badge, noCore, "Standalone", nullptr);
-        ok (panel.getWidth() == 330 && panel.getHeight() == 302, "empty coreVersion removes exactly one popup row");
+        ok (panel.getWidth() == 340 && panel.getHeight() == 342, "empty coreVersion removes exactly one popup row");
         ok (panel.coreLink.getParentComponent() == nullptr, "empty coreVersion does not attach a core link");
         ok (paintedAlphaPixels (panel) > 0, "empty-core panel paints nonblank headless content");
 
         const auto withCore = versionConfig ("v0.8.0-3-gabc1234");
         VersionBadge badge2 (c, withCore, "Standalone");
         VersionBadge::Panel panel2 (badge2, withCore, "Standalone", nullptr);
-        ok (panel2.getWidth() == 330 && panel2.getHeight() == 320, "non-empty coreVersion keeps the dependency row");
+        ok (panel2.getWidth() == 340 && panel2.getHeight() == 360, "non-empty coreVersion keeps the dependency row");
         ok (panel2.coreLink.getParentComponent() == &panel2, "non-empty coreVersion attaches a core link");
     }
 
@@ -183,7 +183,7 @@ int main()
         VersionBadge::Panel panel2 (badge2, muted, "Standalone", nullptr);
         ok (panel2.feed.getParentComponent() == nullptr, "an empty feedUrl attaches no feed link");
         ok (panel2.feedPrompt.getParentComponent() == nullptr, "an empty feedUrl drops the prompt line too");
-        ok (panel2.getHeight() == 264, "an empty feedUrl shrinks the popup back by the whole block");
+        ok (panel2.getHeight() == 304, "an empty feedUrl shrinks the popup back by the whole block");
 
         auto noPrompt = cfg;
         noPrompt.feedPrompt = {};
@@ -191,7 +191,7 @@ int main()
         VersionBadge::Panel panel3 (badge3, noPrompt, "Standalone", nullptr);
         ok (panel3.feed.getParentComponent() == &panel3 && panel3.feedPrompt.getParentComponent() == nullptr,
             "an empty feedPrompt keeps the paw row and drops only the prompt");
-        ok (panel3.getHeight() == 284, "prompt-less block is exactly one 16 px line shorter");
+        ok (panel3.getHeight() == 324, "prompt-less block is exactly one 16 px line shorter");
         panel2.resized();
         ok (panel2.pawArea.isEmpty(), "no feed row, no paw");
     }

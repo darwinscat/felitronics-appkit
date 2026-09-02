@@ -67,6 +67,11 @@ public:
         // here so the popover mirrors their window header exactly.
         std::function<void (juce::Graphics&, float cx, float cy, float d)> drawMark;
 
+        // An optional SECOND mark, drawn left of the byline row: the family sign (Darwin's Cat)
+        // under the product's own, exactly as a product's window header carries both. Null (the
+        // default) leaves the byline starting at the left margin.
+        std::function<void (juce::Graphics&, float cx, float cy, float d)> drawByline;
+
         // Visual defaults — OrbitCab's current pixels (its LookAndFeel constants, which differ
         // from the brand:: palette on purpose: the badge predates the consolidated identity).
         juce::Colour accent      { 0xff7c4dff };   // the format line
@@ -199,7 +204,7 @@ private:
             const bool hasCore = config.coreVersion.isNotEmpty();
 
             // The brand byline link (under the title mark).
-            link.setFont (juce::FontOptions (13.0f), false, juce::Justification::centredLeft);
+            link.setFont (juce::FontOptions (kTextH), false, juce::Justification::centredLeft);
             link.setButtonText (config.byline);
             link.setURL (juce::URL (config.productUrl));
             link.setColour (juce::HyperlinkButton::textColourId, config.accentHover);
@@ -211,7 +216,7 @@ private:
             {
                 b.setButtonText (text);
                 b.setURL (juce::URL (url));
-                b.setFont (juce::FontOptions (kMonoH).withName (mono), false, juce::Justification::centredLeft);
+                b.setFont (juce::FontOptions (kTextH).withName (mono), false, juce::Justification::centredLeft);
                 b.setColour (juce::HyperlinkButton::textColourId, config.accentHover);
                 b.changeWidthToFitText();
                 addAndMakeVisible (b);
@@ -232,7 +237,7 @@ private:
             auto info = [&] (juce::Label& l, const juce::String& text)
             {
                 l.setText (text, juce::dontSendNotification);
-                l.setFont (juce::FontOptions (kMonoH).withName (mono));
+                l.setFont (juce::FontOptions (kTextH).withName (mono));
                 l.setJustificationType (juce::Justification::centredLeft);
                 l.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
                 addAndMakeVisible (l);
@@ -253,12 +258,12 @@ private:
             check.onClick = [this] { runCheck(); };
             addAndMakeVisible (check);
 
-            result.setFont (juce::FontOptions (13.0f));
+            result.setFont (juce::FontOptions (kTextH));
             result.setJustificationType (juce::Justification::centredLeft);
             result.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
             addAndMakeVisible (result);
 
-            download.setFont (juce::FontOptions (13.0f), false, juce::Justification::centredLeft);
+            download.setFont (juce::FontOptions (kTextH), false, juce::Justification::centredLeft);
             download.setButtonText ("Download");
             download.setColour (juce::HyperlinkButton::textColourId, config.accentB);
             addChildComponent (download);   // hidden until an update is actually available (then setURL + setVisible)
@@ -268,7 +273,7 @@ private:
                 if (config.feedPrompt.isNotEmpty())
                 {
                     feedPrompt.setText (config.feedPrompt, juce::dontSendNotification);
-                    feedPrompt.setFont (juce::FontOptions (12.0f));
+                    feedPrompt.setFont (juce::FontOptions (kTextH));
                     feedPrompt.setJustificationType (juce::Justification::centredLeft);
                     feedPrompt.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
                     addAndMakeVisible (feedPrompt);
@@ -276,7 +281,7 @@ private:
                 const juce::URL feedLink = brand::feedTheCatLink (config.productName, config.feedUrl);
                 feed.setButtonText (config.feedLabel);
                 feed.setURL (feedLink);
-                feed.setFont (juce::FontOptions (13.0f, juce::Font::bold), false, juce::Justification::centredLeft);
+                feed.setFont (juce::FontOptions (kTextH, juce::Font::bold), false, juce::Justification::centredLeft);
                 feed.setColour (juce::HyperlinkButton::textColourId, config.accentB);
                 feed.setTooltip (feedLink.toString (true));
                 feed.changeWidthToFitText();
@@ -294,7 +299,7 @@ private:
             stampText = stampLines.joinIntoString ("\n");
 
             note.setText ("Opt-in. Sends only product + version.", juce::dontSendNotification);
-            note.setFont (juce::FontOptions (11.0f));
+            note.setFont (juce::FontOptions (kTextH));
             note.setColour (juce::Label::textColourId, juce::Colour (0xff60606a));
             addAndMakeVisible (note);
 
@@ -305,7 +310,7 @@ private:
             const int feedRows = config.feedUrl.isNotEmpty()            // the tip-jar block, when configured:
                                    ? 20 + (config.feedPrompt.isNotEmpty() ? kRowH : 0)   // paw row + prompt line
                                    : 0;
-            setSize (kWidth, (hasCore ? 266 : 248) + feedRows + kFooterH);   // one row less without the dependency line
+            setSize (kWidth, (hasCore ? 304 : 286) + feedRows + kFooterH);   // one row less without the dependency line
         }
 
         // Brand title: [mark] <productName>, mirroring the window header. Drawn (not a Label) so
@@ -328,12 +333,16 @@ private:
             const float baseline = cy + (wf.getAscent() - wf.getDescent()) * 0.5f;
             g.drawSingleLineText (config.productName, juce::roundToInt (a.getX() + d + 7.0f), juce::roundToInt (baseline));
 
+            if (! bylineArea.isEmpty() && config.drawByline != nullptr)   // the family mark, under the product's
+                config.drawByline (g, bylineArea.toFloat().getCentreX(), bylineArea.toFloat().getCentreY(),
+                                   (float) bylineArea.getHeight());
+
             if (! pawArea.isEmpty())   // the "Feed the cat" row's paw print, matching its link colour
                 brand::drawPaw (g, pawArea.toFloat().getCentreX(), pawArea.toFloat().getCentreY(),
                                 pawArea.toFloat().getHeight(), config.accentB);
 
             // The copy affordance's small print, bottom-right: the invitation, then the receipt.
-            g.setFont (juce::FontOptions (11.5f).withName (juce::Font::getDefaultMonospacedFontName()));
+            g.setFont (juce::FontOptions (kTextH).withName (juce::Font::getDefaultMonospacedFontName()));
             g.setColour (copied ? config.accentB : juce::Colour (0xff60606a));
             g.drawText (copied ? juce::String::fromUTF8 ("copied \xe2\x9c\x93") : juce::String ("click the stamp to copy"),
                         getLocalBounds().reduced (14, 12).removeFromBottom (kFooterH),
@@ -344,8 +353,14 @@ private:
         {
             auto r = getLocalBounds().reduced (14, 12);
             r.removeFromBottom (kFooterH);              // the copy hint's row — drawn in paint()
-            titleArea = r.removeFromTop (28);           // [mark] <productName> — drawn in paint()
-            link.setBounds (r.removeFromTop (kRowH));
+            titleArea = r.removeFromTop (kTitleH);      // [mark] <productName> — drawn in paint()
+            auto rowB = r.removeFromTop (kBylineH);     // [family mark] by <maker>
+            if (config.drawByline != nullptr)
+            {
+                bylineArea = rowB.removeFromLeft (kBylineH).reduced (1);
+                rowB.removeFromLeft (6);
+            }
+            link.setBounds (rowB);
             r.removeFromTop (5);
 
             // Info rows: a GitHub link (fitted width) + a trailing plain label. Their union is the
@@ -373,7 +388,7 @@ private:
             // and Download rows land below the small print, and the feed block at
             // the popup's foot keeps the whitespace between the two stories.
             r.removeFromTop (2);
-            note.setBounds     (r.removeFromTop (16));
+            note.setBounds     (r.removeFromTop (kRowH));
             r.removeFromTop (2);
             result.setBounds   (r.removeFromTop (20));
             download.setBounds (r.removeFromTop (kRowH));
@@ -460,14 +475,17 @@ private:
         // The popover's type scale. The rows used to sit 4-6 px under the update button's own LnF font
         // (~15 px from its 26 px cell) — one window, two type sizes. kMonoH is the stamp's face; kRowH
         // the row that carries it; kWidth widened with the type so the environment row still fits.
-        static constexpr float kMonoH   = 12.5f;
+        static constexpr float kTextH   = 13.0f;             // EVERY row of text; only the marks differ
         static constexpr int  kRowH     = 18;
-        static constexpr int  kWidth    = 330;
-        static constexpr int  kFooterH  = 16;                // the copy hint's row at the panel's foot
+        static constexpr int  kTitleH   = 56;                // the product mark + wordmark, twice the old
+        static constexpr int  kBylineH  = 26;                // the family mark + "by <maker>"
+        static constexpr int  kWidth    = 340;
+        static constexpr int  kFooterH  = 18;                // the copy hint's row at the panel's foot
         juce::String          stampText;                    // what a click on the block puts on the clipboard
         juce::Rectangle<int>  stampArea;                    // the copyable rows (set by resized)
         bool                  copied = false;               // showing the receipt rather than the invitation
         juce::Rectangle<int>  titleArea;                    // where paint() draws [mark] <productName>
+        juce::Rectangle<int>  bylineArea;                   // where paint() draws the family mark (if any)
         juce::Rectangle<int>  pawArea;                      // where paint() draws the feed row's paw print
         juce::Label           result, note, tailA, tailB, line3, coreLead, coreTail, feedPrompt;
         juce::HyperlinkButton link, download, verLink, commitLink, coreLink, feed;
