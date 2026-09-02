@@ -130,6 +130,13 @@ public:
             showPopup();
     }
 
+    // The popover, cast programmatically. A product may prefer its OWN affordance as the door —
+    // TabbyEQ's toolbar (i) button, say — instead of (or beside) a click on the badge itself; then
+    // the badge can stay invisible and simply own the config + the checker wiring. Message thread
+    // only, like every other entry point here. Defined below the class: the panel it builds is a
+    // private nested type.
+    void showPopup();
+
 private:
     // Rendered width of `s` in font `f` (dot position / hand layout in the popover).
     static float textWidth (const juce::Font& f, const juce::String& s)
@@ -406,11 +413,6 @@ private:
         juce::TextButton      check;
     };
 
-    void showPopup()
-    {
-        launchCallOut (*this, std::make_unique<Panel> (*this, config, format, brandTypeface));
-    }
-
     UpdateChecker&      checker;
     Config              config;
     juce::String        format;          // running plugin format (VST3 / AU / CLAP / Standalone)
@@ -418,5 +420,10 @@ private:
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VersionBadge)
 };
+
+inline void VersionBadge::showPopup()
+{
+    launchCallOut (*this, std::make_unique<Panel> (*this, config, format, brandTypeface));
+}
 
 } // namespace felitronics::appkit
