@@ -165,13 +165,28 @@ private:
         return update::isCleanRelease (base.toStdString()) ? base : tag;
     }
 
+    // The 14-digit UTC build stamp (YYYYMMDDHHMMSS) sliced into human blocks:
+    // 20260713092444 -> "2026-07-13 09:24:44 UTC". A stamp that isn't that shape (a generator
+    // failure path bakes a 0) is shown raw rather than mangled.
+    static juce::String prettyBuildStamp (juce::int64 buildNumber)
+    {
+        const auto raw = juce::String (buildNumber);
+        if (raw.length() != 14)
+            return raw;
+        return raw.substring (0, 4)  + "-" + raw.substring (4, 6)   + "-" + raw.substring (6, 8)
+             + " "
+             + raw.substring (8, 10) + ":" + raw.substring (10, 12) + ":" + raw.substring (12, 14)
+             + " UTC";
+    }
+
     //--- the CallOutBox content ----------------------------------------------
     // The callout is a child of the TOP-LEVEL window (see CallOut.h), so it can OUTLIVE the badge —
     // and in a consumer that owns badge + checker together (a closable settings subview, say), the
     // checker dies with them. The panel therefore never stores a checker reference: everything it
     // needs to DRAW is copied at construction (the badge is alive then — it launched us), and the
     // one post-construction checker call (checkNow) reaches it through the live badge or no-ops.
-    struct Panel final : public juce::Component
+    struct Panel final : public juce::Component,
+                         private juce::Timer
     {
         Panel (VersionBadge& ownerBadge, Config cfg,
                juce::String pluginFormat, juce::Typeface::Ptr brandTf)
@@ -225,7 +240,7 @@ private:
             if (config.buildCount > 0) tailAtxt << mid << config.buildCount << " commits";
             if (config.gitDirty)       tailAtxt << mid << "dirty";
             info (tailA, tailAtxt);
-            info (tailB, juce::String ("  build ") + juce::String (config.buildNumber));   // annotates the commit line
+            info (tailB, juce::String ("  build ") + prettyBuildStamp (config.buildNumber));   // annotates the commit line
             info (line3, pluginFormat + mid + config.os + " " + config.arch + mid + config.builder);
             if (hasCore)
             {
@@ -266,6 +281,16 @@ private:
                 addAndMakeVisible (feed);
             }
 
+            // What the stamp block copies: the four rows it SHOWS, in reading order. A build stamp is
+            // most useful in a bug report, and a report is pasted, not retyped.
+            juce::StringArray stampLines;
+            stampLines.add (config.productName + " " + ver + tailAtxt);
+            stampLines.add (juce::String ("g") + config.gitHash + "  build " + prettyBuildStamp (config.buildNumber));
+            stampLines.add (line3.getText());
+            if (hasCore)
+                stampLines.add (config.coreLabel + config.coreVersion);
+            stampText = stampLines.joinIntoString ("\n");
+
             note.setText ("Opt-in. Sends only product + version.", juce::dontSendNotification);
             note.setFont (juce::FontOptions (10.0f));
             note.setColour (juce::Label::textColourId, juce::Colour (0xff60606a));
@@ -278,7 +303,7 @@ private:
             const int feedRows = config.feedUrl.isNotEmpty()            // the tip-jar block, when configured:
                                    ? 20 + (config.feedPrompt.isNotEmpty() ? 16 : 0)   // paw row + prompt line
                                    : 0;
-            setSize (300, (hasCore ? 248 : 232) + feedRows);   // one 16 px row less without the dependency line
+            setSize (300, (hasCore ? 248 : 232) + feedRows + kFooterH);   // one 16 px row less without the dependency line
         }
 
         // Brand title: [mark] <productName>, mirroring the window header. Drawn (not a Label) so
@@ -304,16 +329,26 @@ private:
             if (! pawArea.isEmpty())   // the "Feed the cat" row's paw print, matching its link colour
                 brand::drawPaw (g, pawArea.toFloat().getCentreX(), pawArea.toFloat().getCentreY(),
                                 pawArea.toFloat().getHeight(), config.accentB);
+
+            // The copy affordance's small print, bottom-right: the invitation, then the receipt.
+            g.setFont (juce::FontOptions (10.5f).withName (juce::Font::getDefaultMonospacedFontName()));
+            g.setColour (copied ? config.accentB : juce::Colour (0xff60606a));
+            g.drawText (copied ? juce::String::fromUTF8 ("copied \xe2\x9c\x93") : juce::String ("click the stamp to copy"),
+                        getLocalBounds().reduced (14, 12).removeFromBottom (kFooterH),
+                        juce::Justification::centredRight, false);
         }
 
         void resized() override
         {
             auto r = getLocalBounds().reduced (14, 12);
+            r.removeFromBottom (kFooterH);              // the copy hint's row — drawn in paint()
             titleArea = r.removeFromTop (26);           // [mark] <productName> — drawn in paint()
             link.setBounds (r.removeFromTop (16));
             r.removeFromTop (5);
 
-            // Info rows: a GitHub link (fitted width) + a trailing plain label.
+            // Info rows: a GitHub link (fitted width) + a trailing plain label. Their union is the
+            // copyable stamp block: a click anywhere in it that a hyperlink didn't take copies.
+            const int stampTop = r.getY();
             auto rowV = r.removeFromTop (16);
             verLink.setBounds    (rowV.removeFromLeft (verLink.getWidth()));
             tailA.setBounds      (rowV);
@@ -328,6 +363,7 @@ private:
                 coreLink.setBounds (rowK.removeFromLeft (coreLink.getWidth()));
                 coreTail.setBounds (rowK);
             }
+            stampArea = juce::Rectangle<int> (0, stampTop, getWidth(), r.getY() - stampTop);
 
             r.removeFromTop (7);
             check.setBounds    (r.removeFromTop (26));
@@ -348,6 +384,19 @@ private:
                     feedPrompt.setBounds (r.removeFromBottom (16));
             }
         }
+
+        // A click that landed on the stamp block (the links and buttons take their own first).
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            if (! stampArea.contains (e.getPosition()))
+                return;
+            juce::SystemClipboard::copyTextToClipboard (stampText);
+            copied = true;
+            repaint();
+            startTimer (1100);   // a brief receipt, then back to the invitation
+        }
+
+        void timerCallback() override { copied = false; repaint(); stopTimer(); }
 
         void runCheck()
         {
@@ -406,6 +455,10 @@ private:
         const Config          config;                       // OWN copy — safe if the badge dies while the popup is open
         const juce::String    releasesPage;                 // checker.releasesPageUrl(), copied likewise (immutable derivation of the slug)
         juce::Typeface::Ptr   brandTypeface;                // the brand face for the title (from the editor; bold fallback if null)
+        static constexpr int  kFooterH = 14;                 // the copy hint's row at the panel's foot
+        juce::String          stampText;                    // what a click on the block puts on the clipboard
+        juce::Rectangle<int>  stampArea;                    // the copyable rows (set by resized)
+        bool                  copied = false;               // showing the receipt rather than the invitation
         juce::Rectangle<int>  titleArea;                    // where paint() draws [mark] <productName>
         juce::Rectangle<int>  pawArea;                      // where paint() draws the feed row's paw print
         juce::Label           result, note, tailA, tailB, line3, coreLead, coreTail, feedPrompt;

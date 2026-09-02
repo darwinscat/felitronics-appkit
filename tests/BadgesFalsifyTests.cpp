@@ -115,15 +115,42 @@ int main()
         const auto noCore = versionConfig ({});
         VersionBadge badge (c, noCore, "Standalone");
         VersionBadge::Panel panel (badge, noCore, "Standalone", nullptr);
-        ok (panel.getWidth() == 300 && panel.getHeight() == 268, "empty coreVersion removes exactly one popup row");
+        ok (panel.getWidth() == 300 && panel.getHeight() == 282, "empty coreVersion removes exactly one popup row");
         ok (panel.coreLink.getParentComponent() == nullptr, "empty coreVersion does not attach a core link");
         ok (paintedAlphaPixels (panel) > 0, "empty-core panel paints nonblank headless content");
 
         const auto withCore = versionConfig ("v0.8.0-3-gabc1234");
         VersionBadge badge2 (c, withCore, "Standalone");
         VersionBadge::Panel panel2 (badge2, withCore, "Standalone", nullptr);
-        ok (panel2.getWidth() == 300 && panel2.getHeight() == 284, "non-empty coreVersion keeps the dependency row");
+        ok (panel2.getWidth() == 300 && panel2.getHeight() == 298, "non-empty coreVersion keeps the dependency row");
         ok (panel2.coreLink.getParentComponent() == &panel2, "non-empty coreVersion attaches a core link");
+    }
+
+    group ("VersionBadge stamp block: a readable build date, copied as the rows it shows");
+    {
+        BadgeChecker c ("1.2.3");
+        const auto cfg = versionConfig ("v0.8.0 (local)");
+        VersionBadge badge (c, cfg, "Standalone");
+        VersionBadge::Panel panel (badge, cfg, "Standalone", nullptr);
+
+        ok (panel.tailB.getText().contains ("build 2026-07-12 00:00:00 UTC"),
+            "the build annotation reads as a date, not fourteen raw digits");
+        ok (! panel.tailB.getText().contains ("20260712000000"), "the raw stamp digits never reach the popup");
+        ok (VersionBadge::prettyBuildStamp (7) == "7", "a stamp that isn't fourteen digits passes through raw");
+
+        ok (panel.stampText.startsWith ("Badge Gate v1.2.3"), "the copy leads with the product and its version");
+        ok (panel.stampText.contains ("gdeadbee  build 2026-07-12 00:00:00 UTC"),
+            "the copy carries the commit and the build date as one row");
+        ok (panel.stampText.contains ("Standalone") && panel.stampText.contains ("arm64"),
+            "the copy carries the environment row");
+        ok (panel.stampText.endsWith ("core v0.8.0 (local)"), "the copy closes on the dependency row");
+
+        panel.resized();
+        ok (panel.stampArea.contains (panel.verLink.getBounds())
+                && panel.stampArea.contains (panel.line3.getBounds()),
+            "the clickable block covers every row it copies");
+        ok (! panel.stampArea.contains (panel.check.getBounds()), "the update button stays outside the copy target");
+        ok (! panel.copied, "the panel opens showing the invitation, not the receipt");
     }
 
     group ("VersionBadge feed row: on by default at the canonical URL, gone when cleared");
@@ -156,7 +183,7 @@ int main()
         VersionBadge::Panel panel2 (badge2, muted, "Standalone", nullptr);
         ok (panel2.feed.getParentComponent() == nullptr, "an empty feedUrl attaches no feed link");
         ok (panel2.feedPrompt.getParentComponent() == nullptr, "an empty feedUrl drops the prompt line too");
-        ok (panel2.getHeight() == 232, "an empty feedUrl shrinks the popup back by the whole block");
+        ok (panel2.getHeight() == 246, "an empty feedUrl shrinks the popup back by the whole block");
 
         auto noPrompt = cfg;
         noPrompt.feedPrompt = {};
@@ -164,7 +191,7 @@ int main()
         VersionBadge::Panel panel3 (badge3, noPrompt, "Standalone", nullptr);
         ok (panel3.feed.getParentComponent() == &panel3 && panel3.feedPrompt.getParentComponent() == nullptr,
             "an empty feedPrompt keeps the paw row and drops only the prompt");
-        ok (panel3.getHeight() == 252, "prompt-less block is exactly one 16 px line shorter");
+        ok (panel3.getHeight() == 266, "prompt-less block is exactly one 16 px line shorter");
         panel2.resized();
         ok (panel2.pawArea.isEmpty(), "no feed row, no paw");
     }
