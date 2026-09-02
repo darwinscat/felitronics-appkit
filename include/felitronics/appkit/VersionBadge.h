@@ -166,7 +166,8 @@ private:
     }
 
     // The 14-digit UTC build stamp (YYYYMMDDHHMMSS) sliced into human blocks:
-    // 20260713092444 -> "2026-07-13 09:24:44 UTC". A stamp that isn't that shape (a generator
+    // 20260713092444 -> "2026-07-13 09:24:44". The clock is UTC and stays unlabelled — the row is a
+    // build stamp, not a local time anyone converts. A stamp that isn't that shape (a generator
     // failure path bakes a 0) is shown raw rather than mangled.
     static juce::String prettyBuildStamp (juce::int64 buildNumber)
     {
@@ -175,8 +176,7 @@ private:
             return raw;
         return raw.substring (0, 4)  + "-" + raw.substring (4, 6)   + "-" + raw.substring (6, 8)
              + " "
-             + raw.substring (8, 10) + ":" + raw.substring (10, 12) + ":" + raw.substring (12, 14)
-             + " UTC";
+             + raw.substring (8, 10) + ":" + raw.substring (10, 12) + ":" + raw.substring (12, 14);
     }
 
     //--- the CallOutBox content ----------------------------------------------
@@ -199,6 +199,7 @@ private:
             const bool hasCore = config.coreVersion.isNotEmpty();
 
             // The brand byline link (under the title mark).
+            link.setFont (juce::FontOptions (13.0f), false, juce::Justification::centredLeft);
             link.setButtonText (config.byline);
             link.setURL (juce::URL (config.productUrl));
             link.setColour (juce::HyperlinkButton::textColourId, config.accentHover);
@@ -210,7 +211,7 @@ private:
             {
                 b.setButtonText (text);
                 b.setURL (juce::URL (url));
-                b.setFont (juce::FontOptions (11.0f).withName (mono), false, juce::Justification::centredLeft);
+                b.setFont (juce::FontOptions (kMonoH).withName (mono), false, juce::Justification::centredLeft);
                 b.setColour (juce::HyperlinkButton::textColourId, config.accentHover);
                 b.changeWidthToFitText();
                 addAndMakeVisible (b);
@@ -231,7 +232,7 @@ private:
             auto info = [&] (juce::Label& l, const juce::String& text)
             {
                 l.setText (text, juce::dontSendNotification);
-                l.setFont (juce::FontOptions (11.0f).withName (mono));
+                l.setFont (juce::FontOptions (kMonoH).withName (mono));
                 l.setJustificationType (juce::Justification::centredLeft);
                 l.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
                 addAndMakeVisible (l);
@@ -252,11 +253,12 @@ private:
             check.onClick = [this] { runCheck(); };
             addAndMakeVisible (check);
 
-            result.setFont (juce::FontOptions (12.0f));
+            result.setFont (juce::FontOptions (13.0f));
             result.setJustificationType (juce::Justification::centredLeft);
             result.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
             addAndMakeVisible (result);
 
+            download.setFont (juce::FontOptions (13.0f), false, juce::Justification::centredLeft);
             download.setButtonText ("Download");
             download.setColour (juce::HyperlinkButton::textColourId, config.accentB);
             addChildComponent (download);   // hidden until an update is actually available (then setURL + setVisible)
@@ -266,7 +268,7 @@ private:
                 if (config.feedPrompt.isNotEmpty())
                 {
                     feedPrompt.setText (config.feedPrompt, juce::dontSendNotification);
-                    feedPrompt.setFont (juce::FontOptions (11.0f));
+                    feedPrompt.setFont (juce::FontOptions (12.0f));
                     feedPrompt.setJustificationType (juce::Justification::centredLeft);
                     feedPrompt.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
                     addAndMakeVisible (feedPrompt);
@@ -274,7 +276,7 @@ private:
                 const juce::URL feedLink = brand::feedTheCatLink (config.productName, config.feedUrl);
                 feed.setButtonText (config.feedLabel);
                 feed.setURL (feedLink);
-                feed.setFont (juce::FontOptions (12.0f, juce::Font::bold), false, juce::Justification::centredLeft);
+                feed.setFont (juce::FontOptions (13.0f, juce::Font::bold), false, juce::Justification::centredLeft);
                 feed.setColour (juce::HyperlinkButton::textColourId, config.accentB);
                 feed.setTooltip (feedLink.toString (true));
                 feed.changeWidthToFitText();
@@ -292,7 +294,7 @@ private:
             stampText = stampLines.joinIntoString ("\n");
 
             note.setText ("Opt-in. Sends only product + version.", juce::dontSendNotification);
-            note.setFont (juce::FontOptions (10.0f));
+            note.setFont (juce::FontOptions (11.0f));
             note.setColour (juce::Label::textColourId, juce::Colour (0xff60606a));
             addAndMakeVisible (note);
 
@@ -301,9 +303,9 @@ private:
                 showUpdate (chk.storedLatest(), juce::URL (releasesPage));
 
             const int feedRows = config.feedUrl.isNotEmpty()            // the tip-jar block, when configured:
-                                   ? 20 + (config.feedPrompt.isNotEmpty() ? 16 : 0)   // paw row + prompt line
+                                   ? 20 + (config.feedPrompt.isNotEmpty() ? kRowH : 0)   // paw row + prompt line
                                    : 0;
-            setSize (300, (hasCore ? 248 : 232) + feedRows + kFooterH);   // one 16 px row less without the dependency line
+            setSize (kWidth, (hasCore ? 266 : 248) + feedRows + kFooterH);   // one row less without the dependency line
         }
 
         // Brand title: [mark] <productName>, mirroring the window header. Drawn (not a Label) so
@@ -331,7 +333,7 @@ private:
                                 pawArea.toFloat().getHeight(), config.accentB);
 
             // The copy affordance's small print, bottom-right: the invitation, then the receipt.
-            g.setFont (juce::FontOptions (10.5f).withName (juce::Font::getDefaultMonospacedFontName()));
+            g.setFont (juce::FontOptions (11.5f).withName (juce::Font::getDefaultMonospacedFontName()));
             g.setColour (copied ? config.accentB : juce::Colour (0xff60606a));
             g.drawText (copied ? juce::String::fromUTF8 ("copied \xe2\x9c\x93") : juce::String ("click the stamp to copy"),
                         getLocalBounds().reduced (14, 12).removeFromBottom (kFooterH),
@@ -342,23 +344,23 @@ private:
         {
             auto r = getLocalBounds().reduced (14, 12);
             r.removeFromBottom (kFooterH);              // the copy hint's row — drawn in paint()
-            titleArea = r.removeFromTop (26);           // [mark] <productName> — drawn in paint()
-            link.setBounds (r.removeFromTop (16));
+            titleArea = r.removeFromTop (28);           // [mark] <productName> — drawn in paint()
+            link.setBounds (r.removeFromTop (kRowH));
             r.removeFromTop (5);
 
             // Info rows: a GitHub link (fitted width) + a trailing plain label. Their union is the
             // copyable stamp block: a click anywhere in it that a hyperlink didn't take copies.
             const int stampTop = r.getY();
-            auto rowV = r.removeFromTop (16);
+            auto rowV = r.removeFromTop (kRowH);
             verLink.setBounds    (rowV.removeFromLeft (verLink.getWidth()));
             tailA.setBounds      (rowV);
-            auto rowC = r.removeFromTop (16);
+            auto rowC = r.removeFromTop (kRowH);
             commitLink.setBounds (rowC.removeFromLeft (commitLink.getWidth()));
             tailB.setBounds      (rowC);
-            line3.setBounds      (r.removeFromTop (16));
+            line3.setBounds      (r.removeFromTop (kRowH));
             if (config.coreVersion.isNotEmpty())
             {
-                auto rowK = r.removeFromTop (16);
+                auto rowK = r.removeFromTop (kRowH);
                 coreLead.setBounds (rowK.removeFromLeft ((int) textWidth (coreLead.getFont(), coreLead.getText()) + 3));
                 coreLink.setBounds (rowK.removeFromLeft (coreLink.getWidth()));
                 coreTail.setBounds (rowK);
@@ -371,17 +373,17 @@ private:
             // and Download rows land below the small print, and the feed block at
             // the popup's foot keeps the whitespace between the two stories.
             r.removeFromTop (2);
-            note.setBounds     (r.removeFromTop (14));
+            note.setBounds     (r.removeFromTop (16));
             r.removeFromTop (2);
-            result.setBounds   (r.removeFromTop (18));
-            download.setBounds (r.removeFromTop (16));
+            result.setBounds   (r.removeFromTop (20));
+            download.setBounds (r.removeFromTop (kRowH));
             if (feed.isVisible())
             {
                 auto rowF = r.removeFromBottom (20);
-                pawArea = rowF.removeFromLeft (15).reduced (0, 3);
+                pawArea = rowF.removeFromLeft (16).reduced (0, 2);
                 feed.setBounds (rowF.withTrimmedLeft (4).removeFromLeft (feed.getWidth()));
                 if (feedPrompt.isVisible())
-                    feedPrompt.setBounds (r.removeFromBottom (16));
+                    feedPrompt.setBounds (r.removeFromBottom (kRowH));
             }
         }
 
@@ -455,7 +457,13 @@ private:
         const Config          config;                       // OWN copy — safe if the badge dies while the popup is open
         const juce::String    releasesPage;                 // checker.releasesPageUrl(), copied likewise (immutable derivation of the slug)
         juce::Typeface::Ptr   brandTypeface;                // the brand face for the title (from the editor; bold fallback if null)
-        static constexpr int  kFooterH = 14;                 // the copy hint's row at the panel's foot
+        // The popover's type scale. The rows used to sit 4-6 px under the update button's own LnF font
+        // (~15 px from its 26 px cell) — one window, two type sizes. kMonoH is the stamp's face; kRowH
+        // the row that carries it; kWidth widened with the type so the environment row still fits.
+        static constexpr float kMonoH   = 12.5f;
+        static constexpr int  kRowH     = 18;
+        static constexpr int  kWidth    = 330;
+        static constexpr int  kFooterH  = 16;                // the copy hint's row at the panel's foot
         juce::String          stampText;                    // what a click on the block puts on the clipboard
         juce::Rectangle<int>  stampArea;                    // the copyable rows (set by resized)
         bool                  copied = false;               // showing the receipt rather than the invitation
