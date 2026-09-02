@@ -45,6 +45,27 @@ if(FELITRONICS_APPKIT_WEBP)
     if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.28)
         set(_appkit_webp_excl EXCLUDE_FROM_ALL)
     endif()
+    # UNIVERSAL macOS builds: libwebp probes for SIMD by COMPILING, and a two-architecture compile
+    # answers with one voice. The SSE2 probe fails (the arm64 slice has no SSE2), so libwebp
+    # concludes SSE2 is absent and puts `-mno-sse2` into CMAKE_C_FLAGS for every slice — including
+    # the x86_64 one, where the macOS 15 SDK's math.h then refuses to declare its `_Float16`
+    # entry points and every translation unit that includes it dies.
+    #
+    # libwebp already means to avoid this: it only adds a disable flag if a probe program still
+    # compiles cleanly WITH it. That probe passes here for the same reason the first one failed —
+    # two slices, one answer. Pre-seeding its cache variables false says what the probe would have
+    # said had it been asked per-architecture, and the flags are never added.
+    #
+    # The cost is libwebp built with no SIMD at all on universal. For decoding one device
+    # photograph per pack that is nothing; a product that pushes pixels through it in anger should
+    # build per-architecture and lipo, which is the only real fix for a probe-by-compiling library.
+    list(LENGTH CMAKE_OSX_ARCHITECTURES _appkit_webp_archs)
+    if(APPLE AND _appkit_webp_archs GREATER 1)
+        foreach(_flag "-mno-avx2" "-mno-sse4.1" "-mno-sse2")
+            set("FLAG_${_flag}" "" CACHE INTERNAL "libwebp SIMD-disable probe (universal build)")
+        endforeach()
+    endif()
+
     if(FELITRONICS_APPKIT_WEBP_SRC)
         FetchContent_Declare(libwebp SOURCE_DIR "${FELITRONICS_APPKIT_WEBP_SRC}" ${_appkit_webp_excl})
     else()
