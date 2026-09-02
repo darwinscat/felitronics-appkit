@@ -104,58 +104,27 @@ int main()
         ok (! badge.getTooltip().contains ("vv0.1.0"), "tooltip never shows the double-v fixture quirk");
 
         VersionBadge::Panel panel (badge, cfg, "Standalone", nullptr);
-        ok (panel.verLink.getButtonText() == "v0.1.0-7-gdeadbee", "popover version text keeps the full build stamp");
-        ok (panel.verLink.getURL().toString (false).endsWith ("/releases/tag/v0.1.0"),
-            "popover version URL points at the base release tag");
+        ok (panel.rows.size() == 2 && panel.rows[0]->link.getButtonText() == "v0.1.0",
+            "the product row shows the RELEASE, not the describe tail");
+        ok (panel.rows[0]->link.getURL().toString (false).endsWith ("/releases/tag/v0.1.0"),
+            "the product row links to its base release tag");
     }
 
-    group ("VersionBadge panel handles empty coreVersion sizing and copied config lifetime");
+    group ("VersionBadge table: the dev facts are columns, not suffixes on the version");
     {
-        BadgeChecker c ("1.2.3");
-        const auto noCore = versionConfig ({});
-        VersionBadge badge (c, noCore, "Standalone");
-        VersionBadge::Panel panel (badge, noCore, "Standalone", nullptr);
-        ok (panel.getWidth() == 340 && panel.getHeight() == 342, "empty coreVersion removes exactly one popup row");
-        ok (panel.depRows.isEmpty(), "empty coreVersion attaches no dependency row");
-        ok (paintedAlphaPixels (panel) > 0, "empty-core panel paints nonblank headless content");
-
-        const auto withCore = versionConfig ("v0.8.0-3-gabc1234");
-        VersionBadge badge2 (c, withCore, "Standalone");
-        VersionBadge::Panel panel2 (badge2, withCore, "Standalone", nullptr);
-        ok (panel2.getWidth() == 340 && panel2.getHeight() == 360, "non-empty coreVersion keeps the dependency row");
-        ok (panel2.depRows.size() == 1 && panel2.depRows[0]->link.getParentComponent() == &panel2,
-            "non-empty coreVersion attaches one linked dependency row");
-    }
-
-    group ("VersionBadge stamp block: a readable build date, copied as the rows it shows");
-    {
-        BadgeChecker c ("1.2.3");
-        const auto cfg = versionConfig ("v0.8.0 (local)");
-        VersionBadge badge (c, cfg, "Standalone");
-        VersionBadge::Panel panel (badge, cfg, "Standalone", nullptr);
-
-        ok (panel.tailB.getText().contains ("build 2026-07-12 00:00:00"),
-            "the build annotation reads as a date, not fourteen raw digits");
-        ok (! panel.tailB.getText().contains ("20260712000000"), "the raw stamp digits never reach the popup");
+        const auto loc   = VersionBadge::Panel::splitStamp ("v0.24.0 (local)");
+        const auto desc  = VersionBadge::Panel::splitStamp ("v0.11.3-4-g6b06cba");
+        const auto dirty = VersionBadge::Panel::splitStamp ("v0.6.0-dirty");
+        const auto plain = VersionBadge::Panel::splitStamp ("8.0.14");
+        ok (loc.version == "v0.24.0" && loc.state == "local",
+            "a sibling checkout reads as a state, not as part of the version");
+        ok (desc.version == "v0.11.3" && desc.commit == "g6b06cba",
+            "a describe tail splits into version + commit");
+        ok (dirty.version == "v0.6.0" && dirty.state == "dirty",
+            "an uncommitted tree reads as a state, not as part of the version");
+        ok (plain.version == "8.0.14" && plain.state.isEmpty(), "a plain release number stays exactly itself");
         ok (VersionBadge::prettyBuildStamp (7) == "7", "a stamp that isn't fourteen digits passes through raw");
 
-        ok (panel.stampText.startsWith ("Badge Gate v1.2.3"), "the copy leads with the product and its version");
-        ok (panel.stampText.contains ("gdeadbee  build 2026-07-12 00:00:00"),
-            "the copy carries the commit and the build date as one row");
-        ok (panel.stampText.contains ("Standalone") && panel.stampText.contains ("arm64"),
-            "the copy carries the environment row");
-        ok (panel.stampText.endsWith ("core v0.8.0 (local)"), "the copy closes on the dependency row");
-
-        panel.resized();
-        ok (panel.stampArea.contains (panel.verLink.getBounds())
-                && panel.stampArea.contains (panel.line3.getBounds()),
-            "the clickable block covers every row it copies");
-        ok (! panel.stampArea.contains (panel.check.getBounds()), "the update button stays outside the copy target");
-        ok (! panel.copied, "the panel opens showing the invitation, not the receipt");
-    }
-
-    group ("VersionBadge dependency list: one aligned row each, the legacy core leading");
-    {
         BadgeChecker c ("1.2.3");
         auto cfg = versionConfig ("v0.8.0 (local)");
         cfg.licence = "AGPL-3.0-or-later";
@@ -164,22 +133,58 @@ int main()
         VersionBadge badge (c, cfg, "Standalone");
         VersionBadge::Panel panel (badge, cfg, "Standalone", nullptr);
 
-        ok (panel.depRows.size() == 3, "the legacy core leads the listed dependencies");
-        ok (panel.depRows[0]->lead.getText().startsWith ("core"), "the core row keeps its own label");
-        ok (panel.depRows[1]->link.getButtonText() == "v0.11.4"
-                && panel.depRows[1]->link.getURL().toString (false).endsWith ("/releases/tag/v0.11.4"),
+        ok (panel.rows.size() == 4, "the product leads, then the legacy core, then the listed deps");
+        ok (panel.rows[0]->lead.getText().startsWith ("Badge Gate"), "row 0 is the product itself");
+        ok (panel.rows[0]->tail.getText().contains ("dirty")
+                && panel.rows[0]->tail.getText().contains ("gdeadbee")
+                && panel.rows[0]->tail.getText().contains ("2026-07-12 00:00:00"),
+            "the product's state, commit and build clock live in their own columns");
+        ok (! panel.rows[0]->link.getButtonText().contains ("dirty"), "...and never in its version cell");
+        ok (panel.rows[1]->tail.getText().contains ("local"), "a sibling dependency says so in the state column");
+        ok (panel.rows[2]->link.getButtonText() == "v0.11.4"
+                && panel.rows[2]->link.getURL().toString (false).endsWith ("/releases/tag/v0.11.4"),
             "a slug turns the version into a link to its release tag");
-        ok (panel.depRows[2]->link.getParentComponent() == nullptr
-                && panel.depRows[2]->plain.getText() == "8.0.14",
+        ok (panel.rows[3]->link.getParentComponent() == nullptr
+                && panel.rows[3]->plain.getText() == "8.0.14",
             "a dependency without a slug stays plain text");
-        const int lead0 = panel.depRows[0]->lead.getText().length();
-        ok (lead0 == panel.depRows[1]->lead.getText().length()
-                && lead0 == panel.depRows[2]->lead.getText().length(),
+        const int lead0 = panel.rows[0]->lead.getText().length();
+        ok (lead0 == panel.rows[1]->lead.getText().length()
+                && lead0 == panel.rows[3]->lead.getText().length(),
             "every label is padded to one column width");
-        ok (panel.tailA.getText().contains ("AGPL-3.0-or-later"), "the licence rides the version row");
-        ok (panel.stampText.contains ("AGPL-3.0-or-later") && panel.stampText.contains ("JUCE  "),
-            "the copy carries the licence and the aligned list");
-        ok (panel.getHeight() == 342 + 3 * 18, "each dependency adds exactly one row");
+        ok (panel.licence.getText() == "AGPL-3.0-or-later", "the licence has its own row under the table");
+        ok (panel.env.getText().contains ("Standalone") && panel.env.getText().contains ("arm64")
+                && panel.env.getText().contains ("gate"),
+            "the environment row carries format, machine and builder");
+
+        ok (panel.stampText.startsWith ("Badge Gate"), "the copy leads with the product row");
+        ok (panel.stampText.contains ("gdeadbee") && panel.stampText.contains ("local")
+                && panel.stampText.contains ("JUCE") && panel.stampText.contains ("AGPL-3.0-or-later"),
+            "the copy is the whole table plus the rows beneath it");
+
+        panel.resized();
+        ok (panel.stampArea.contains (panel.rows[0]->lead.getBounds())
+                && panel.stampArea.contains (panel.rows[3]->tail.getBounds()),
+            "the box covers every row it copies");
+        ok (! panel.stampArea.contains (panel.check.getBounds()), "the update button stays outside the copy target");
+        ok (! panel.copied, "the panel opens showing the invitation, not the receipt");
+        ok (panel.getWidth() == 600, "the table sets the panel's width");
+    }
+
+    group ("VersionBadge panel sizing follows the table it carries");
+    {
+        BadgeChecker c ("1.2.3");
+        const auto noCore = versionConfig ({});
+        VersionBadge badge (c, noCore, "Standalone");
+        VersionBadge::Panel panel (badge, noCore, "Standalone", nullptr);
+        ok (panel.rows.size() == 1, "empty coreVersion attaches no dependency row");
+        ok (paintedAlphaPixels (panel) > 0, "panel paints nonblank headless content");
+
+        const auto withCore = versionConfig ("v0.8.0-3-gabc1234");
+        VersionBadge badge2 (c, withCore, "Standalone");
+        VersionBadge::Panel panel2 (badge2, withCore, "Standalone", nullptr);
+        ok (panel2.getHeight() == panel.getHeight() + 18, "the legacy core adds exactly one row");
+        ok (panel2.rows.size() == 2 && panel2.rows[1]->link.getParentComponent() == &panel2,
+            "the legacy core row is linked like any other");
     }
 
     group ("VersionBadge feed row: on by default at the canonical URL, gone when cleared");
@@ -212,7 +217,8 @@ int main()
         VersionBadge::Panel panel2 (badge2, muted, "Standalone", nullptr);
         ok (panel2.feed.getParentComponent() == nullptr, "an empty feedUrl attaches no feed link");
         ok (panel2.feedPrompt.getParentComponent() == nullptr, "an empty feedUrl drops the prompt line too");
-        ok (panel2.getHeight() == 304, "an empty feedUrl shrinks the popup back by the whole block");
+        ok (panel2.getHeight() == panel.getHeight() - (VersionBadge::Panel::kFeedRowH + VersionBadge::Panel::kRowH),
+            "an empty feedUrl shrinks the popup back by the whole block");
 
         auto noPrompt = cfg;
         noPrompt.feedPrompt = {};
@@ -220,7 +226,7 @@ int main()
         VersionBadge::Panel panel3 (badge3, noPrompt, "Standalone", nullptr);
         ok (panel3.feed.getParentComponent() == &panel3 && panel3.feedPrompt.getParentComponent() == nullptr,
             "an empty feedPrompt keeps the paw row and drops only the prompt");
-        ok (panel3.getHeight() == 324, "prompt-less block is exactly one 16 px line shorter");
+        ok (panel3.getHeight() == panel.getHeight() - 18, "prompt-less block is exactly one row shorter");
         panel2.resized();
         ok (panel2.pawArea.isEmpty(), "no feed row, no paw");
     }

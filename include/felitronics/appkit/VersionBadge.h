@@ -8,6 +8,7 @@
 #include <felitronics/appkit/CallOut.h>         // launchCallOut — editor-parented CallOutBox
 #include <felitronics/appkit/UpdateChecker.h>   // the opt-in GitHub-release check this badge fronts
 
+#include <cmath>
 #include <functional>
 #include <memory>
 #include <utility>
@@ -84,9 +85,9 @@ public:
         // here so the popover mirrors their window header exactly.
         std::function<void (juce::Graphics&, float cx, float cy, float d)> drawMark;
 
-        // An optional SECOND mark, drawn left of the byline row: the family sign (Darwin's Cat)
-        // under the product's own, exactly as a product's window header carries both. Null (the
-        // default) leaves the byline starting at the left margin.
+        // An optional SECOND mark, drawn on the title row LEFT of the product's own and at the same
+        // size: the maker's sign beside the product's, the way a window header carries both. Null
+        // (the default) leaves the title as mark + wordmark.
         std::function<void (juce::Graphics&, float cx, float cy, float d)> drawByline;
 
         // Visual defaults — OrbitCab's current pixels (its LookAndFeel constants, which differ
@@ -218,24 +219,53 @@ private:
             UpdateChecker& chk = ownerBadge.checker;   // construction-time only — never stored
             const juce::String mono = juce::Font::getDefaultMonospacedFontName();
             const juce::String mid  = juce::String::fromUTF8 (" \xc2\xb7 ");   // " · "
+            const juce::Font   face { juce::FontOptions (kTextH).withName (mono) };
+            charW = juce::jmax (1.0f, textWidth (face, "0"));
 
-            // The dependency list: the legacy single core first (its label carries its own spacing),
-            // then whatever the product listed.
-            std::vector<Config::Dependency> deps;
-            if (config.coreVersion.isNotEmpty())
-                deps.push_back ({ config.coreLabel.trimEnd(), config.coreVersion, config.coreOwnerRepo });
+            // ---- the table -------------------------------------------------------------------
+            // Row 0 is the product; the rest is what it was built on. Every dev fact gets its own
+            // COLUMN — component | version | state | commit | built — instead of being smuggled into
+            // the version as a "-dirty" / "-77-gdeadbee" / " (local)" tail. Nothing is dropped; it
+            // just stops being clutter.
+            std::vector<Config::Dependency> data;
+            data.push_back ({ config.productName, chk.currentVersion(), chk.ownerRepo() });
+            if (config.coreVersion.isNotEmpty())      // the legacy single-core trio leads the deps
+                data.push_back ({ config.coreLabel.trimEnd(), config.coreVersion, config.coreOwnerRepo });
             for (const auto& d : config.dependencies)
-                deps.push_back (d);
+                data.push_back (d);
 
-            // The brand byline link (under the title mark).
-            link.setFont (juce::FontOptions (kTextH), false, juce::Justification::centredLeft);
-            link.setButtonText (config.byline);
-            link.setURL (juce::URL (config.productUrl));
-            link.setColour (juce::HyperlinkButton::textColourId, config.accentHover);
-            link.setJustificationType (juce::Justification::centredLeft);
-            addAndMakeVisible (link);
+            std::vector<Cells> cells;
+            for (size_t i = 0; i < data.size(); ++i)
+            {
+                auto c = splitStamp (data[i].version);
+                if (i == 0)   // the product knows its own hash, dirt and build clock exactly
+                {
+                    c.version = releaseTagForCurrentVersion (chk.currentVersion());   // the tag it links to
+                    if (config.gitDirty)              c.state  = "dirty";
+                    if (config.gitHash.isNotEmpty())  c.commit = "g" + config.gitHash;
+                    c.built = prettyBuildStamp (config.buildNumber);
+                }
+                cells.push_back (c);
+            }
 
-            // The GitHub links (version → release tag, commit → HEAD, core → the dependency's tag).
+            // Column widths, in characters: monospace makes space-padding exact alignment.
+            int wLabel = 0, wVer = 0, wState = 0, wCommit = 0;
+            for (size_t i = 0; i < data.size(); ++i)
+            {
+                wLabel  = juce::jmax (wLabel,  data[i].label.length());
+                wVer    = juce::jmax (wVer,    cells[i].version.length());
+                wState  = juce::jmax (wState,  cells[i].state.length());
+                wCommit = juce::jmax (wCommit, cells[i].commit.length());
+            }
+
+            auto info = [&] (juce::Label& l, const juce::String& text, juce::Colour colour)
+            {
+                l.setText (text, juce::dontSendNotification);
+                l.setFont (juce::FontOptions (kTextH).withName (mono));
+                l.setJustificationType (juce::Justification::centredLeft);
+                l.setColour (juce::Label::textColourId, colour);
+                addAndMakeVisible (l);
+            };
             auto ghLink = [&] (juce::HyperlinkButton& b, const juce::String& text, const juce::String& url)
             {
                 b.setButtonText (text);
@@ -245,64 +275,77 @@ private:
                 b.changeWidthToFitText();
                 addAndMakeVisible (b);
             };
-            const juce::String repoBase = "https://github.com/" + chk.ownerRepo();
-            const juce::String ver = displayVersionTag (chk.currentVersion());
-            ghLink (verLink,    ver,                                 repoBase + "/releases/tag/" + releaseTagForCurrentVersion (chk.currentVersion()));
-            ghLink (commitLink, juce::String ("g") + config.gitHash, repoBase + "/commit/" + config.gitHash);
 
-            // The plain-text bits that annotate each link line.
-            auto info = [&] (juce::Label& l, const juce::String& text)
-            {
-                l.setText (text, juce::dontSendNotification);
-                l.setFont (juce::FontOptions (kTextH).withName (mono));
-                l.setJustificationType (juce::Justification::centredLeft);
-                l.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
-                addAndMakeVisible (l);
-            };
-            juce::String tailAtxt;                                   // annotates the version line
-            if (config.buildCount > 0)        tailAtxt << mid << config.buildCount << " commits";
-            if (config.gitDirty)              tailAtxt << mid << "dirty";
-            if (config.licence.isNotEmpty())  tailAtxt << mid << config.licence;
-            info (tailA, tailAtxt);
-            info (tailB, juce::String ("  build ") + prettyBuildStamp (config.buildNumber));   // annotates the commit line
-            info (line3, pluginFormat + mid + config.os + " " + config.arch + mid + config.builder);
+            const juce::Colour ink    { 0xff9a9aa4 };   // the table's plain text
+            const juce::Colour inkDim { 0xff6f6f79 };   // state / commit / built: present, not loud
 
-            // The dependency rows. Labels are padded to the widest one so the versions line up as a
-            // column — the whole point of a list. Monospace makes the padding exact.
-            int widest = 0;
-            for (const auto& d : deps)
-                widest = juce::jmax (widest, d.label.length());
-            for (const auto& d : deps)
+            juce::StringArray stampLines;
+            for (size_t i = 0; i < data.size(); ++i)
             {
-                auto* row = depRows.add (new DepRow());
-                info (row->lead, d.label.paddedRight (' ', widest + 1));
-                if (d.ownerRepo.isNotEmpty())
-                {
-                    // The link points at the BARE release tag; the row still shows the whole stamp,
-                    // suffix and all, so nothing about the running build is hidden.
-                    const juce::String tag = d.version.upToFirstOccurrenceOf (" ", false, false)
-                                                      .upToFirstOccurrenceOf ("-", false, false);
-                    ghLink (row->link, d.version, "https://github.com/" + d.ownerRepo + "/releases/tag/" + tag);
-                }
+                auto* row = rows.add (new Row());
+                const auto& d = data[i];
+                const auto& c = cells[i];
+
+                info (row->lead, d.label.paddedRight (' ', wLabel + 1), i == 0 ? config.text : ink);
+                if (d.ownerRepo.isNotEmpty() && c.version.isNotEmpty())
+                    ghLink (row->link, c.version, "https://github.com/" + d.ownerRepo + "/releases/tag/" + c.version);
                 else
-                {
-                    info (row->plain, d.version);
-                }
+                    info (row->plain, c.version, ink);
+
+                // The tail completes the version column with spaces, then carries the rest, so every
+                // column lines up whatever a row happens to hold.
+                juce::String tail = juce::String::repeatedString (" ", juce::jmax (0, wVer - c.version.length()) + 2);
+                tail << c.state .paddedRight (' ', wState  + (wState  > 0 ? 2 : 0))
+                     << c.commit.paddedRight (' ', wCommit + (wCommit > 0 ? 2 : 0))
+                     << c.built;
+                info (row->tail, tail.trimEnd(), inkDim);
+
+                stampLines.add ((d.label.paddedRight (' ', wLabel + 1) + c.version + tail).trimEnd());
             }
+
+            // ---- the rows the table does not carry -------------------------------------------
+            info (licence, config.licence, ink);
+            info (env, pluginFormat + mid + config.os + " " + config.arch
+                       + (config.builder.isNotEmpty() ? mid + config.builder : juce::String()), ink);
+            stampLines.add (licence.getText());
+            stampLines.add (env.getText());
+            stampText = stampLines.joinIntoString ("\n");
+
+            // The maker's byline, right of the marks.
+            link.setFont (juce::FontOptions (kTextH), false, juce::Justification::centredLeft);
+            link.setButtonText (config.byline);
+            link.setURL (juce::URL (config.productUrl));
+            link.setColour (juce::HyperlinkButton::textColourId, config.accentHover);
+            link.setJustificationType (juce::Justification::centredLeft);
+            addAndMakeVisible (link);
 
             check.setButtonText ("Check for updates");
             check.onClick = [this] { runCheck(); };
             addAndMakeVisible (check);
 
+            // The consent switch for the automatic path, beside the button it automates. Off unless
+            // the user turned it on; the checker persists it (see UpdateChecker::setAutoCheckEnabled).
+            autoCheck.setButtonText ("Automatically, once a day");
+            autoCheck.setToggleState (chk.autoCheckEnabled(), juce::dontSendNotification);
+            autoCheck.setColour (juce::ToggleButton::textColourId, ink);
+            autoCheck.setColour (juce::ToggleButton::tickColourId, config.accentHover);
+            autoCheck.setColour (juce::ToggleButton::tickDisabledColourId, ink.withAlpha (0.5f));
+            autoCheck.onClick = [this]
+            {
+                if (auto* live = owner.getComponent())
+                    live->checker.setAutoCheckEnabled (autoCheck.getToggleState());
+            };
+            addAndMakeVisible (autoCheck);
+
             result.setFont (juce::FontOptions (kTextH));
             result.setJustificationType (juce::Justification::centredLeft);
-            result.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
+            result.setColour (juce::Label::textColourId, ink);
             addAndMakeVisible (result);
 
             download.setFont (juce::FontOptions (kTextH), false, juce::Justification::centredLeft);
             download.setButtonText ("Download");
             download.setColour (juce::HyperlinkButton::textColourId, config.accentB);
-            addChildComponent (download);   // hidden until an update is actually available (then setURL + setVisible)
+            addChildComponent (download);   // hidden until an update is actually available
 
             if (config.feedUrl.isNotEmpty())
             {
@@ -311,121 +354,160 @@ private:
                     feedPrompt.setText (config.feedPrompt, juce::dontSendNotification);
                     feedPrompt.setFont (juce::FontOptions (kTextH));
                     feedPrompt.setJustificationType (juce::Justification::centredLeft);
-                    feedPrompt.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
+                    feedPrompt.setColour (juce::Label::textColourId, ink);
                     addAndMakeVisible (feedPrompt);
                 }
                 const juce::URL feedLink = brand::feedTheCatLink (config.productName, config.feedUrl);
                 feed.setButtonText (config.feedLabel);
                 feed.setURL (feedLink);
-                feed.setFont (juce::FontOptions (kTextH, juce::Font::bold), false, juce::Justification::centredLeft);
+                feed.setFont (juce::FontOptions (kFeedH, juce::Font::bold), false, juce::Justification::centredLeft);
                 feed.setColour (juce::HyperlinkButton::textColourId, config.accentB);
                 feed.setTooltip (feedLink.toString (true));
                 feed.changeWidthToFitText();
                 addAndMakeVisible (feed);
             }
 
-            // What the stamp block copies: the four rows it SHOWS, in reading order. A build stamp is
-            // most useful in a bug report, and a report is pasted, not retyped.
-            juce::StringArray stampLines;
-            stampLines.add (config.productName + " " + ver + tailAtxt);
-            stampLines.add (juce::String ("g") + config.gitHash + "  build " + prettyBuildStamp (config.buildNumber));
-            stampLines.add (line3.getText());
-            for (const auto& d : deps)                       // the list, aligned as the panel shows it
-                stampLines.add (d.label.paddedRight (' ', widest + 1) + d.version);
-            stampText = stampLines.joinIntoString ("\n");
-
             note.setText ("Opt-in. Sends only product + version.", juce::dontSendNotification);
             note.setFont (juce::FontOptions (kTextH));
             note.setColour (juce::Label::textColourId, juce::Colour (0xff60606a));
             addAndMakeVisible (note);
 
-            // If an update is already known from a previous check, show it up front.
-            if (chk.updateAvailable())
+            if (chk.updateAvailable())   // a check from a previous session already found one
                 showUpdate (chk.storedLatest(), juce::URL (releasesPage));
 
-            const int feedRows = config.feedUrl.isNotEmpty()            // the tip-jar block, when configured:
-                                   ? 20 + (config.feedPrompt.isNotEmpty() ? kRowH : 0)   // paw row + prompt line
+            startTimerHz (24);   // the tip jar's glow (and the copy receipt's countdown)
+
+            const int feedRows = config.feedUrl.isNotEmpty()
+                                   ? kFeedRowH + (config.feedPrompt.isNotEmpty() ? kRowH : 0)
                                    : 0;
-            setSize (kWidth, 286 + (int) deps.size() * kRowH + feedRows + kFooterH);   // one row per dependency
+            setSize (kWidth, 268 + (int) rows.size() * kRowH + feedRows);
         }
 
-        // Brand title: [mark] <productName>, mirroring the window header. Drawn (not a Label) so
-        // the mark + wordmark share the product's exact renderer (Config::drawMark + the typeface).
+        // "v0.24.0 (local)" / "v0.11.3-4-g6b06cba" / "8.0.14" -> the columns they really are.
+        struct Cells { juce::String version, state, commit, built; };
+        static Cells splitStamp (juce::String raw)
+        {
+            Cells c;
+            raw = raw.trim();
+            const juce::String head = raw.upToFirstOccurrenceOf (" ", false, false);   // drop " (local)"
+            c.version = head.upToFirstOccurrenceOf ("-", false, false);
+            if (raw.containsIgnoreCase ("(local)"))  c.state = "local";
+            if (head.endsWithIgnoreCase ("-dirty"))  c.state = c.state.isEmpty() ? "dirty" : "local+dirty";
+            const int g = head.lastIndexOf ("-g");                                      // "-77-gdeadbee"
+            if (g > 0) c.commit = head.substring (g + 1).upToFirstOccurrenceOf ("-", false, false);
+            return c;
+        }
+
         void paint (juce::Graphics& g) override
         {
-            const auto a = titleArea.toFloat();
-            const float d  = a.getHeight() * 0.92f;
-            const float cy = a.getCentreY();
-            if (config.drawMark != nullptr)
-                config.drawMark (g, a.getX() + d * 0.5f, cy, d);
-            else
-                brand::drawOrbit (g, a.getX() + d * 0.5f, cy, d);
+            // The title: the product's mark, its wordmark, then the maker's mark — SAME size, so
+            // neither reads as a footnote to the other — and the byline link beside it.
+            const float d  = (float) markArea.getHeight();
+            const float cy = (float) titleArea.getCentreY();
+            if (config.drawMark != nullptr) config.drawMark (g, markArea.toFloat().getCentreX(), cy, d);
+            else                            brand::drawOrbit (g, markArea.toFloat().getCentreX(), cy, d);
 
-            const auto wf = brandTypeface != nullptr
-                              ? juce::Font (juce::FontOptions().withHeight (a.getHeight() * 0.66f).withTypeface (brandTypeface))
-                              : juce::Font (juce::FontOptions (a.getHeight() * 0.66f, juce::Font::bold));
+            const auto wf = wordmarkFont();
             g.setFont (wf);
             g.setColour (config.text);
-            const float baseline = cy + (wf.getAscent() - wf.getDescent()) * 0.5f;
-            g.drawSingleLineText (config.productName, juce::roundToInt (a.getX() + d + 7.0f), juce::roundToInt (baseline));
+            g.drawSingleLineText (config.productName, wordmarkX,
+                                  juce::roundToInt (cy + (wf.getAscent() - wf.getDescent()) * 0.5f));
 
-            if (! bylineArea.isEmpty() && config.drawByline != nullptr)   // the family mark, under the product's
-                config.drawByline (g, bylineArea.toFloat().getCentreX(), bylineArea.toFloat().getCentreY(),
-                                   (float) bylineArea.getHeight());
+            if (! catArea.isEmpty() && config.drawByline != nullptr)
+                config.drawByline (g, catArea.toFloat().getCentreX(), cy, d);
 
-            if (! pawArea.isEmpty())   // the "Feed the cat" row's paw print, matching its link colour
-                brand::drawPaw (g, pawArea.toFloat().getCentreX(), pawArea.toFloat().getCentreY(),
-                                pawArea.toFloat().getHeight(), config.accentB);
+            // The table reads as a table — and the box IS the click target that copies it.
+            const auto box = stampArea.toFloat();
+            g.setColour (juce::Colours::black.withAlpha (0.22f));
+            g.fillRoundedRectangle (box, 5.0f);
+            g.setColour (config.accent.withAlpha (0.28f));
+            g.drawRoundedRectangle (box, 5.0f, 1.0f);
+
+            if (! pawArea.isEmpty())
+            {
+                // The tip jar breathes — a valve warming, not a notification blinking: the halo and
+                // the print ride the same slow sine, and neither ever goes dark.
+                const float k = glow();
+                const auto  p = pawArea.toFloat();
+                g.setColour (config.accentB.withAlpha (0.06f + 0.10f * k));
+                g.fillEllipse (p.expanded (p.getHeight() * 0.55f));
+                g.setColour (config.accentB.withAlpha (0.10f + 0.14f * k));
+                g.fillEllipse (p.expanded (p.getHeight() * 0.22f));
+                brand::drawPaw (g, p.getCentreX(), p.getCentreY(), p.getHeight(),
+                                config.accentB.withMultipliedBrightness (0.86f + 0.14f * k));
+            }
 
             // The copy affordance's small print, bottom-right: the invitation, then the receipt.
             g.setFont (juce::FontOptions (kTextH).withName (juce::Font::getDefaultMonospacedFontName()));
             g.setColour (copied ? config.accentB : juce::Colour (0xff60606a));
-            g.drawText (copied ? juce::String::fromUTF8 ("copied \xe2\x9c\x93") : juce::String ("click the stamp to copy"),
+            g.drawText (copied ? juce::String::fromUTF8 ("copied \xe2\x9c\x93") : juce::String ("click the table to copy it"),
                         getLocalBounds().reduced (14, 12).removeFromBottom (kFooterH),
                         juce::Justification::centredRight, false);
+        }
+
+        juce::Font wordmarkFont() const
+        {
+            const float h = kTitleH * 0.46f;
+            return brandTypeface != nullptr
+                     ? juce::Font (juce::FontOptions().withHeight (h).withTypeface (brandTypeface))
+                     : juce::Font (juce::FontOptions (h, juce::Font::bold));
         }
 
         void resized() override
         {
             auto r = getLocalBounds().reduced (14, 12);
             r.removeFromBottom (kFooterH);              // the copy hint's row — drawn in paint()
-            titleArea = r.removeFromTop (kTitleH);      // [mark] <productName> — drawn in paint()
-            auto rowB = r.removeFromTop (kBylineH);     // [family mark] by <maker>
-            if (config.drawByline != nullptr)
-            {
-                bylineArea = rowB.removeFromLeft (kBylineH).reduced (1);
-                rowB.removeFromLeft (6);
-            }
-            link.setBounds (rowB);
-            r.removeFromTop (5);
 
-            // Info rows: a GitHub link (fitted width) + a trailing plain label. Their union is the
-            // copyable stamp block: a click anywhere in it that a hyperlink didn't take copies.
+            titleArea = r.removeFromTop (kTitleH);
+            {
+                auto row = titleArea;
+                const int d = (int) (kTitleH * 0.92f);
+                markArea = row.removeFromLeft (d).withSizeKeepingCentre (d, d);
+                row.removeFromLeft (8);
+                wordmarkX = row.getX();
+                row.removeFromLeft ((int) textWidth (wordmarkFont(), config.productName) + 16);
+                if (config.drawByline != nullptr)
+                {
+                    catArea = row.removeFromLeft (d).withSizeKeepingCentre (d, d);
+                    row.removeFromLeft (8);
+                }
+                link.setBounds (row.withSizeKeepingCentre (row.getWidth(), kRowH));
+            }
+            r.removeFromTop (8);
+
+            // The table, inside its box.
             const int stampTop = r.getY();
-            auto rowV = r.removeFromTop (kRowH);
-            verLink.setBounds    (rowV.removeFromLeft (verLink.getWidth()));
-            tailA.setBounds      (rowV);
-            auto rowC = r.removeFromTop (kRowH);
-            commitLink.setBounds (rowC.removeFromLeft (commitLink.getWidth()));
-            tailB.setBounds      (rowC);
-            line3.setBounds      (r.removeFromTop (kRowH));
-            for (auto* row : depRows)
+            r.removeFromTop (5);
+            for (auto* row : rows)
             {
-                auto rowK = r.removeFromTop (kRowH);
-                rowK.removeFromLeft ((int) textWidth (row->lead.getFont(), row->lead.getText()));
-                row->lead.setBounds (rowK.withX (r.getX()).withWidth (rowK.getX() - r.getX()));
-                if (row->link.getParentComponent() != nullptr)
-                    row->link.setBounds (rowK.removeFromLeft (row->link.getWidth()));
-                else
-                    row->plain.setBounds (rowK);
+                auto k = r.removeFromTop (kRowH).withTrimmedLeft (6);
+                k.removeFromLeft (juce::roundToInt (charW * (float) row->lead.getText().length()));
+                row->lead.setBounds (k.withX (r.getX() + 6).withWidth (k.getX() - r.getX() - 6));
+                auto& versionComp = row->link.getParentComponent() != nullptr
+                                      ? static_cast<juce::Component&> (row->link)
+                                      : static_cast<juce::Component&> (row->plain);
+                const int vw = row->link.getParentComponent() != nullptr
+                                 ? row->link.getWidth()
+                                 : juce::roundToInt (charW * (float) row->plain.getText().length());
+                versionComp.setBounds (k.removeFromLeft (vw));
+                row->tail.setBounds (k);
             }
-            stampArea = juce::Rectangle<int> (0, stampTop, getWidth(), r.getY() - stampTop);
+            r.removeFromTop (5);
+            stampArea = juce::Rectangle<int> (8, stampTop, getWidth() - 16, r.getY() - stampTop);
 
-            r.removeFromTop (7);
-            check.setBounds    (r.removeFromTop (26));
-            // The telemetry note hugs the button it describes; the dynamic result
-            // and Download rows land below the small print, and the feed block at
-            // the popup's foot keeps the whitespace between the two stories.
+            r.removeFromTop (6);
+            licence.setBounds (r.removeFromTop (kRowH));
+            env.setBounds     (r.removeFromTop (kRowH));
+
+            r.removeFromTop (8);
+            {
+                auto row = r.removeFromTop (26);
+                check.setBounds (row.removeFromLeft (juce::jmin (220, row.getWidth())));
+                row.removeFromLeft (14);
+                autoCheck.setBounds (row);
+            }
+            // The telemetry note hugs the button it describes; the dynamic result and Download rows
+            // land below the small print, and the feed block at the foot keeps the two stories apart.
             r.removeFromTop (2);
             note.setBounds     (r.removeFromTop (kRowH));
             r.removeFromTop (2);
@@ -433,9 +515,10 @@ private:
             download.setBounds (r.removeFromTop (kRowH));
             if (feed.isVisible())
             {
-                auto rowF = r.removeFromBottom (20);
-                pawArea = rowF.removeFromLeft (16).reduced (0, 2);
-                feed.setBounds (rowF.withTrimmedLeft (4).removeFromLeft (feed.getWidth()));
+                auto rowF = r.removeFromBottom (kFeedRowH);
+                feedArea = rowF;
+                pawArea = rowF.removeFromLeft (kFeedRowH).reduced (2);
+                feed.setBounds (rowF.withTrimmedLeft (6).removeFromLeft (feed.getWidth()));
                 if (feedPrompt.isVisible())
                     feedPrompt.setBounds (r.removeFromBottom (kRowH));
             }
@@ -448,11 +531,32 @@ private:
                 return;
             juce::SystemClipboard::copyTextToClipboard (stampText);
             copied = true;
+            copiedFrames = 27;   // ~1.1 s at 24 Hz, then back to the invitation
             repaint();
-            startTimer (1100);   // a brief receipt, then back to the invitation
         }
 
-        void timerCallback() override { copied = false; repaint(); stopTimer(); }
+        // 24 Hz: the tip jar's glow advances, and the copy receipt counts itself down.
+        void timerCallback() override
+        {
+            if (copiedFrames > 0 && --copiedFrames == 0)
+            {
+                copied = false;
+                repaint();
+            }
+
+            phase += 0.026f;   // ~2.6 s a cycle at 24 Hz — a breath, not a blink
+            if (phase > juce::MathConstants<float>::twoPi)
+                phase -= juce::MathConstants<float>::twoPi;
+
+            if (feed.isVisible())
+            {
+                feed.setColour (juce::HyperlinkButton::textColourId,
+                                config.accentB.withMultipliedBrightness (0.86f + 0.14f * glow()));
+                repaint (feedArea);
+            }
+        }
+
+        float glow() const { return 0.5f + 0.5f * std::sin (phase); }
 
         void runCheck()
         {
@@ -511,31 +615,40 @@ private:
         const Config          config;                       // OWN copy — safe if the badge dies while the popup is open
         const juce::String    releasesPage;                 // checker.releasesPageUrl(), copied likewise (immutable derivation of the slug)
         juce::Typeface::Ptr   brandTypeface;                // the brand face for the title (from the editor; bold fallback if null)
-        // The popover's type scale. The rows used to sit 4-6 px under the update button's own LnF font
-        // (~15 px from its 26 px cell) — one window, two type sizes. kMonoH is the stamp's face; kRowH
-        // the row that carries it; kWidth widened with the type so the environment row still fits.
-        static constexpr float kTextH   = 13.0f;             // EVERY row of text; only the marks differ
+
+        // The popover's scale. ONE text size for every row (the update button keeps the size its
+        // LookAndFeel derives from its cell — it is meant to be the loud thing); the marks scale with
+        // the title row; the width is set by the TABLE, which is the window's centre of gravity.
+        static constexpr float kTextH   = 13.0f;
+        static constexpr float kFeedH   = 16.0f;             // the tip jar speaks a size louder
         static constexpr int  kRowH     = 18;
-        static constexpr int  kTitleH   = 56;                // the product mark + wordmark, twice the old
-        static constexpr int  kBylineH  = 26;                // the family mark + "by <maker>"
-        static constexpr int  kWidth    = 340;
+        static constexpr int  kFeedRowH = 26;                // the paw's row
+        static constexpr int  kTitleH   = 72;                // [product mark] <wordmark> [maker mark] by <maker>
+        static constexpr int  kWidth    = 600;
         static constexpr int  kFooterH  = 18;                // the copy hint's row at the panel's foot
-        juce::String          stampText;                    // what a click on the block puts on the clipboard
-        juce::Rectangle<int>  stampArea;                    // the copyable rows (set by resized)
+
+        float                 charW = 8.0f;                 // one monospaced advance (column arithmetic)
+        juce::String          stampText;                    // what a click on the table puts on the clipboard
+        juce::Rectangle<int>  stampArea;                    // the table's box — also the click target
         bool                  copied = false;               // showing the receipt rather than the invitation
-        juce::Rectangle<int>  titleArea;                    // where paint() draws [mark] <productName>
-        juce::Rectangle<int>  bylineArea;                   // where paint() draws the family mark (if any)
+        int                   copiedFrames = 0;             // frames left on the receipt
+        float                 phase = 0.0f;                 // the tip jar's glow
+        juce::Rectangle<int>  feedArea;                     // the row the glow repaints
+        juce::Rectangle<int>  titleArea, markArea, catArea; // where paint() draws the title row
+        int                   wordmarkX = 0;
         juce::Rectangle<int>  pawArea;                      // where paint() draws the feed row's paw print
-        // One dependency row: "<label padded>" then the version, linked when the dep has a slug.
-        struct DepRow
+
+        // One table row: "<component>" | version (linked when the row has a repo) | the dim rest.
+        struct Row
         {
-            juce::Label           lead, plain;
+            juce::Label           lead, plain, tail;
             juce::HyperlinkButton link;
         };
-        juce::OwnedArray<DepRow> depRows;
+        juce::OwnedArray<Row> rows;
 
-        juce::Label           result, note, tailA, tailB, line3, feedPrompt;
-        juce::HyperlinkButton link, download, verLink, commitLink, feed;
+        juce::Label           result, note, licence, env, feedPrompt;
+        juce::HyperlinkButton link, download, feed;
+        juce::ToggleButton    autoCheck;
         juce::TextButton      check;
     };
 

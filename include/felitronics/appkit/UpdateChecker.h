@@ -79,6 +79,12 @@ public:
         // overrides these so its users' stored badges survive the migration.
         juce::String keyLatest = "updateLastSeenLatest";
         juce::String keyEpoch  = "updateLastCheckEpoch";
+        juce::String keyAuto   = "updateAutoCheck";
+
+        // How long a successful check counts as fresh for the automatic path. GitHub's anonymous
+        // budget is 60 requests per hour per IP; once a day is three orders of magnitude under it,
+        // and a plugin is not a news feed.
+        juce::int64 autoCheckIntervalMs = 24LL * 60LL * 60LL * 1000LL;
 
         // Connect timeout — short: opt-in, non-blocking. The body-read budget is derived as 2× this
         // (see fetch()) and the destructor join budget as this + 3 s: cancel() aborts a blocked
@@ -156,6 +162,49 @@ public:
                     cb2 ({});                       // deliver the silent-failure contract (ok=false) synchronously
     }
 
+    // ---- the automatic path: OPT-IN, off until the user says otherwise ------------------------
+    // The strict rule above (network only on a user click) has exactly one relaxation, and the user
+    // grants it: a persisted switch, off by default, that lets the product check once a day on its
+    // own. The request is the same one the button makes — GitHub sees an IP and a User-Agent
+    // carrying product + version, nothing else — which is why consent is explicit and revocable.
+    bool autoCheckEnabled() const
+    {
+        if (auto* s = store())
+            return s->getBoolValue (config.keyAuto, false);
+        return false;                               // no store, no consent to remember
+    }
+
+    void setAutoCheckEnabled (bool shouldCheck)
+    {
+        if (auto* s = store())
+        {
+            s->setValue (config.keyAuto, shouldCheck);
+            s->saveIfNeeded();
+        }
+    }
+
+    // True when no successful check has landed within the interval (or nothing is remembered).
+    bool checkIsDue() const
+    {
+        auto* s = store();
+        if (s == nullptr)
+            return true;
+        const juce::int64 last = s->getValue (config.keyEpoch, "0").getLargeIntValue();
+        return juce::Time::getCurrentTime().toMilliseconds() - last >= config.autoCheckIntervalMs;
+    }
+
+    // The product calls this where its UI comes up (editor open — MESSAGE THREAD, never the audio
+    // thread, never a constructor that runs on a scanner's import). No consent or a check inside the
+    // interval => nothing happens at all, and it says so by returning false.
+    bool checkIfDue (std::function<void (Result)> cb = {})
+    {
+        JUCE_ASSERT_MESSAGE_THREAD
+        if (! autoCheckEnabled() || ! checkIsDue())
+            return false;
+        checkNow (std::move (cb));
+        return true;
+    }
+
     // Badge state: a stored "latest" tag that is newer than the running build.
     bool updateAvailable() const
     {
@@ -182,8 +231,8 @@ private:
         if (auto* s = store())
         {
             s->setValue (config.keyLatest, latest);
-            // keyEpoch is written for support/diagnostics ("when did this box last see GitHub?") —
-            // nothing in the checker reads it back; both originals recorded it, kept for parity.
+            // keyEpoch: when this box last saw GitHub. Written here and for every other successful
+            // check (handleAsyncUpdate) — checkIsDue() reads it back to space the automatic path.
             s->setValue (config.keyEpoch, juce::String (juce::Time::getCurrentTime().toMilliseconds()));
             s->saveIfNeeded();
         }
@@ -316,6 +365,16 @@ private:
             storeOutdated (pending.latest);
         else if (pending.ok)
             clearStored();
+
+        // Any check that actually reached GitHub resets the automatic path's clock — including one
+        // that found nothing new. A FAILED check does not, so an offline launch retries tomorrow
+        // rather than burning the day's slot.
+        if (pending.ok)
+            if (auto* s = store())
+            {
+                s->setValue (config.keyEpoch, juce::String (juce::Time::getCurrentTime().toMilliseconds()));
+                s->saveIfNeeded();
+            }
 
         if (auto cb = std::exchange (onDone, nullptr))
             cb (pending);
