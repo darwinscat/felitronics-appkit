@@ -135,22 +135,22 @@ int main()
 
         ok (panel.rows.size() == 4, "the product leads, then the legacy core, then the listed deps");
         ok (panel.rows[0]->lead.getText().startsWith ("Badge Gate"), "row 0 is the product itself");
-        ok (panel.rows[0]->tail.getText().contains ("dirty")
-                && panel.rows[0]->tail.getText().contains ("gdeadbee")
-                && panel.rows[0]->tail.getText().contains ("2026-07-12 00:00:00"),
+        ok (panel.rows[0]->state.getText() == "dirty"
+                && panel.rows[0]->commit.getText() == "gdeadbee"
+                && panel.rows[0]->built.getText() == "2026-07-12 00:00:00",
             "the product's state, commit and build clock live in their own columns");
         ok (! panel.rows[0]->link.getButtonText().contains ("dirty"), "...and never in its version cell");
-        ok (panel.rows[1]->tail.getText().contains ("local"), "a sibling dependency says so in the state column");
+        ok (panel.rows[1]->state.getText() == "local", "a sibling dependency says so in the state column");
+        ok (panel.rows[3]->state.getText().isEmpty() && panel.rows[3]->built.getText().isEmpty(),
+            "a row with nothing to say in a column leaves it empty");
         ok (panel.rows[2]->link.getButtonText() == "v0.11.4"
                 && panel.rows[2]->link.getURL().toString (false).endsWith ("/releases/tag/v0.11.4"),
             "a slug turns the version into a link to its release tag");
         ok (panel.rows[3]->link.getParentComponent() == nullptr
                 && panel.rows[3]->plain.getText() == "8.0.14",
             "a dependency without a slug stays plain text");
-        const int lead0 = panel.rows[0]->lead.getText().length();
-        ok (lead0 == panel.rows[1]->lead.getText().length()
-                && lead0 == panel.rows[3]->lead.getText().length(),
-            "every label is padded to one column width");
+        ok (panel.rows[0]->lead.getText() == "Badge Gate" && panel.rows[3]->lead.getText() == "JUCE",
+            "a cell holds its own text — the columns do the aligning, not padding");
         ok (panel.licence.getText() == "AGPL-3.0-or-later", "the licence has its own row under the table");
         ok (panel.env.getText().contains ("Standalone") && panel.env.getText().contains ("arm64")
                 && panel.env.getText().contains ("gate"),
@@ -163,11 +163,27 @@ int main()
 
         panel.resized();
         ok (panel.stampArea.contains (panel.rows[0]->lead.getBounds())
-                && panel.stampArea.contains (panel.rows[3]->tail.getBounds()),
+                && panel.stampArea.contains (panel.rows[3]->lead.getBounds()),
             "the box covers every row it copies");
+        ok (panel.rows[0]->lead.getX() == panel.rows[3]->lead.getX()
+                && panel.rows[0]->state.getX() == panel.rows[1]->state.getX(),
+            "the cells sit on real columns, not on padded text");
+        ok (panel.rows[0]->built.getRight() <= panel.stampArea.getRight(),
+            "the widest column still fits inside the table's box");
         ok (! panel.stampArea.contains (panel.check.getBounds()), "the update button stays outside the copy target");
         ok (! panel.copied, "the panel opens showing the invitation, not the receipt");
-        ok (panel.getWidth() == 600, "the table sets the panel's width");
+        panel.showUpdate ("9.9.9", juce::URL ("https://example.invalid/rel"));
+        ok (panel.download.isVisible() && ! panel.result.isVisible()
+                && panel.download.getButtonText().contains ("9.9.9")
+                && panel.download.getButtonText().contains ("Download"),
+            "an available update turns the whole verdict into the link");
+        ok (panel.download.getWidth() > panel.getWidth() / 2,
+            "...and that link spans the row, not a word at its end");
+
+        bool wantsClicks = true, wantsChildClicks = true;
+        panel.rows[0]->lead.getInterceptsMouseClicks (wantsClicks, wantsChildClicks);
+        ok (! wantsClicks, "a table cell lets the click through to the copy target beneath it");
+        ok (panel.getWidth() > VersionBadge::Panel::kMinWidth, "the table sets the panel's width");
     }
 
     group ("VersionBadge panel sizing follows the table it carries");
@@ -207,8 +223,9 @@ int main()
             "the telemetry note hugs the update button it describes");
         ok (panel.note.getBottom() <= panel.feedPrompt.getY(),
             "the telemetry note clings to the update block, not to the cat");
-        ok (panel.feedPrompt.getBottom() <= panel.feed.getY(),
-            "the prompt line leads and the paw row closes the popup");
+        ok (panel.feedPrompt.getRight() <= panel.pawArea.getX()
+                && panel.pawArea.getRight() <= panel.feed.getX(),
+            "the prompt leads, then the paw, then the words — one sentence, one row");
         ok (paintedAlphaPixels (panel) > 0, "feed-row panel paints nonblank headless content");
 
         auto muted = cfg;
@@ -217,7 +234,7 @@ int main()
         VersionBadge::Panel panel2 (badge2, muted, "Standalone", nullptr);
         ok (panel2.feed.getParentComponent() == nullptr, "an empty feedUrl attaches no feed link");
         ok (panel2.feedPrompt.getParentComponent() == nullptr, "an empty feedUrl drops the prompt line too");
-        ok (panel2.getHeight() == panel.getHeight() - (VersionBadge::Panel::kFeedRowH + VersionBadge::Panel::kRowH),
+        ok (panel2.getHeight() == panel.getHeight() - VersionBadge::Panel::kFeedRowH,
             "an empty feedUrl shrinks the popup back by the whole block");
 
         auto noPrompt = cfg;
@@ -226,7 +243,8 @@ int main()
         VersionBadge::Panel panel3 (badge3, noPrompt, "Standalone", nullptr);
         ok (panel3.feed.getParentComponent() == &panel3 && panel3.feedPrompt.getParentComponent() == nullptr,
             "an empty feedPrompt keeps the paw row and drops only the prompt");
-        ok (panel3.getHeight() == panel.getHeight() - 18, "prompt-less block is exactly one row shorter");
+        ok (panel3.getHeight() == panel.getHeight(),
+            "the prompt shares the paw's row, so dropping it costs no height");
         panel2.resized();
         ok (panel2.pawArea.isEmpty(), "no feed row, no paw");
     }

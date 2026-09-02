@@ -264,6 +264,12 @@ private:
                 l.setFont (juce::FontOptions (kTextH).withName (mono));
                 l.setJustificationType (juce::Justification::centredLeft);
                 l.setColour (juce::Label::textColourId, colour);
+                l.setBorderSize (juce::BorderSize<int> (0));   // a Label insets its text by 5 px by
+                                                                // default — a column measured to the
+                                                                // glyphs would clip its last one
+                // ...and a Label EATS the click that lands on it. Every one of these is inert text
+                // sitting on the copy target, so the click has to fall through to the panel.
+                l.setInterceptsMouseClicks (false, false);
                 addAndMakeVisible (l);
             };
             auto ghLink = [&] (juce::HyperlinkButton& b, const juce::String& text, const juce::String& url)
@@ -279,6 +285,9 @@ private:
             const juce::Colour ink    { 0xff9a9aa4 };   // the table's plain text
             const juce::Colour inkDim { 0xff6f6f79 };   // state / commit / built: present, not loud
 
+            // A real grid: every cell is its own component on a measured column, so the columns hold
+            // whatever a row puts in them (a link, a dim note, nothing) instead of relying on padded
+            // text to fake the alignment.
             juce::StringArray stampLines;
             for (size_t i = 0; i < data.size(); ++i)
             {
@@ -286,33 +295,59 @@ private:
                 const auto& d = data[i];
                 const auto& c = cells[i];
 
-                info (row->lead, d.label.paddedRight (' ', wLabel + 1), i == 0 ? config.text : ink);
+                info (row->lead, d.label, i == 0 ? config.text : ink);
                 if (d.ownerRepo.isNotEmpty() && c.version.isNotEmpty())
                     ghLink (row->link, c.version, "https://github.com/" + d.ownerRepo + "/releases/tag/" + c.version);
                 else
                     info (row->plain, c.version, ink);
+                info (row->state,  c.state,  inkDim);
+                info (row->commit, c.commit, inkDim);
+                info (row->built,  c.built,  inkDim);
 
-                // The tail completes the version column with spaces, then carries the rest, so every
-                // column lines up whatever a row happens to hold.
-                juce::String tail = juce::String::repeatedString (" ", juce::jmax (0, wVer - c.version.length()) + 2);
-                tail << c.state .paddedRight (' ', wState  + (wState  > 0 ? 2 : 0))
-                     << c.commit.paddedRight (' ', wCommit + (wCommit > 0 ? 2 : 0))
+                // The COPY keeps the padding: a clipboard has no columns, only spaces.
+                juce::String line;
+                line << d.label  .paddedRight (' ', wLabel + 2)
+                     << c.version.paddedRight (' ', wVer   + 2)
+                     << c.state  .paddedRight (' ', wState + (wState > 0 ? 2 : 0))
+                     << c.commit .paddedRight (' ', wCommit + (wCommit > 0 ? 2 : 0))
                      << c.built;
-                info (row->tail, tail.trimEnd(), inkDim);
-
-                stampLines.add ((d.label.paddedRight (' ', wLabel + 1) + c.version + tail).trimEnd());
+                stampLines.add (line.trimEnd());
             }
+
+            // Column geometry, measured from the widest cell each column actually holds.
+            const int gap = 14;
+            int x = 0;
+            for (int col = 0; col < kCols; ++col)
+            {
+                int w = 0;
+                for (int i = 0; i < rows.size(); ++i)
+                    w = juce::jmax (w, (int) textWidth (face, cellText (i, col, data, cells)));
+                colX[col] = x;
+                colW[col] = w;
+                x += w + (w > 0 ? gap : 0);
+            }
+            tableW = juce::jmax (0, x - gap);
 
             // ---- the rows the table does not carry -------------------------------------------
             info (licence, config.licence, ink);
+            if (config.productUrl.isNotEmpty())
+            {
+                // The address, spelled out: a window that names the product should say where it lives
+                // rather than hide it behind a byline. Scheme and trailing slash are noise on a line.
+                juce::String shown = config.productUrl.fromFirstOccurrenceOf ("//", false, false);
+                if (shown.endsWith ("/")) shown = shown.dropLastCharacters (1);
+                ghLink (site, shown, config.productUrl);
+            }
             info (env, pluginFormat + mid + config.os + " " + config.arch
                        + (config.builder.isNotEmpty() ? mid + config.builder : juce::String()), ink);
             stampLines.add (licence.getText());
             stampLines.add (env.getText());
+            if (site.getParentComponent() != nullptr)
+                stampLines.add (site.getButtonText());
             stampText = stampLines.joinIntoString ("\n");
 
             // The maker's byline, right of the marks.
-            link.setFont (juce::FontOptions (kTextH), false, juce::Justification::centredLeft);
+            link.setFont (juce::FontOptions (kBylineH), false, juce::Justification::centredLeft);
             link.setButtonText (config.byline);
             link.setURL (juce::URL (config.productUrl));
             link.setColour (juce::HyperlinkButton::textColourId, config.accentHover);
@@ -342,7 +377,11 @@ private:
             result.setColour (juce::Label::textColourId, ink);
             addAndMakeVisible (result);
 
-            download.setFont (juce::FontOptions (kTextH), false, juce::Justification::centredLeft);
+            // Underlined and full-width: when there IS an update, the whole row is the click target,
+            // not one word at the end of a sentence.
+            juce::Font dl { juce::FontOptions (kTextH) };
+            dl.setUnderline (true);
+            download.setFont (dl, false, juce::Justification::centredLeft);
             download.setButtonText ("Download");
             download.setColour (juce::HyperlinkButton::textColourId, config.accentB);
             addChildComponent (download);   // hidden until an update is actually available
@@ -352,7 +391,7 @@ private:
                 if (config.feedPrompt.isNotEmpty())
                 {
                     feedPrompt.setText (config.feedPrompt, juce::dontSendNotification);
-                    feedPrompt.setFont (juce::FontOptions (kTextH));
+                    feedPrompt.setFont (juce::FontOptions (kFeedH));
                     feedPrompt.setJustificationType (juce::Justification::centredLeft);
                     feedPrompt.setColour (juce::Label::textColourId, ink);
                     addAndMakeVisible (feedPrompt);
@@ -377,14 +416,33 @@ private:
 
             startTimerHz (24);   // the tip jar's glow (and the copy receipt's countdown)
 
-            const int feedRows = config.feedUrl.isNotEmpty()
-                                   ? kFeedRowH + (config.feedPrompt.isNotEmpty() ? kRowH : 0)
-                                   : 0;
-            setSize (kWidth, 268 + (int) rows.size() * kRowH + feedRows);
+            // The prompt and the paw are one sentence — "Like the plugin? 🐾 Feed the Cat" — so they
+            // share a row and the block costs exactly that row.
+            const int feedRows = config.feedUrl.isNotEmpty() ? kFeedRowH : 0;
+            // The TABLE sets the width: it is the widest thing in the window, and a grid that has to
+            // wrap is not a grid. kMinWidth keeps the chrome from collapsing when the table is tiny.
+            setSize (juce::jmax (kMinWidth, 28 + 2 * kBoxPad + tableW),
+                     250 + (config.productUrl.isNotEmpty() ? kRowH : 0)
+                         + (int) rows.size() * kRowH + feedRows);
+        }
+
+        struct Cells { juce::String version, state, commit, built; };
+
+        // What column `col` of row `i` holds — the one place the grid's order is written down.
+        static juce::String cellText (int i, int col,
+                                      const std::vector<Config::Dependency>& data, const std::vector<Cells>& cells)
+        {
+            switch (col)
+            {
+                case 0:  return data[(size_t) i].label;
+                case 1:  return cells[(size_t) i].version;
+                case 2:  return cells[(size_t) i].state;
+                case 3:  return cells[(size_t) i].commit;
+                default: return cells[(size_t) i].built;
+            }
         }
 
         // "v0.24.0 (local)" / "v0.11.3-4-g6b06cba" / "8.0.14" -> the columns they really are.
-        struct Cells { juce::String version, state, commit, built; };
         static Cells splitStamp (juce::String raw)
         {
             Cells c;
@@ -420,6 +478,13 @@ private:
             const auto box = stampArea.toFloat();
             g.setColour (juce::Colours::black.withAlpha (0.22f));
             g.fillRoundedRectangle (box, 5.0f);
+
+            // The grid's own rules: a hairline under the product row (it is the subject, the rest is
+            // what it stands on) and between the components below it.
+            g.setColour (config.accent.withAlpha (0.16f));
+            for (int i = 1; i < rows.size(); ++i)
+                g.drawHorizontalLine (gridTop + i * kRowH, box.getX() + 6.0f, box.getRight() - 6.0f);
+
             g.setColour (config.accent.withAlpha (0.28f));
             g.drawRoundedRectangle (box, 5.0f, 1.0f);
 
@@ -445,13 +510,13 @@ private:
                         juce::Justification::centredRight, false);
         }
 
-        juce::Font wordmarkFont() const
+        juce::Font wordmarkFontAt (float h) const
         {
-            const float h = kTitleH * 0.46f;
             return brandTypeface != nullptr
                      ? juce::Font (juce::FontOptions().withHeight (h).withTypeface (brandTypeface))
                      : juce::Font (juce::FontOptions (h, juce::Font::bold));
         }
+        juce::Font wordmarkFont() const { return wordmarkFontAt (wordmarkH); }
 
         void resized() override
         {
@@ -462,6 +527,18 @@ private:
             {
                 auto row = titleArea;
                 const int d = (int) (kTitleH * 0.92f);
+
+                // The lockup FILLS the row: the table decides the window's width, so the wordmark is
+                // scaled to take exactly the space the marks and the byline leave it (within reason —
+                // it never shrinks past legible or grows past the row's own height).
+                const juce::Font bf { juce::FontOptions (kBylineH) };
+                const int fixed = d + 8 + 16 + (config.drawByline != nullptr ? d + 8 : 0)
+                                    + (int) textWidth (bf, config.byline);
+                const float probeH = kTitleH * 0.5f;
+                const float probeW = juce::jmax (1.0f, textWidth (wordmarkFontAt (probeH), config.productName));
+                wordmarkH = juce::jlimit (kTitleH * 0.34f, kTitleH * 0.72f,
+                                          probeH * (float) juce::jmax (1, row.getWidth() - fixed) / probeW);
+
                 markArea = row.removeFromLeft (d).withSizeKeepingCentre (d, d);
                 row.removeFromLeft (8);
                 wordmarkX = row.getX();
@@ -471,26 +548,25 @@ private:
                     catArea = row.removeFromLeft (d).withSizeKeepingCentre (d, d);
                     row.removeFromLeft (8);
                 }
-                link.setBounds (row.withSizeKeepingCentre (row.getWidth(), kRowH));
+                link.setBounds (row.withSizeKeepingCentre (row.getWidth(), (int) kBylineH + 6));
             }
             r.removeFromTop (8);
 
             // The table, inside its box.
             const int stampTop = r.getY();
             r.removeFromTop (5);
+            gridTop = r.getY();
+            const int gridX = r.getX() + kBoxPad;
             for (auto* row : rows)
             {
-                auto k = r.removeFromTop (kRowH).withTrimmedLeft (6);
-                k.removeFromLeft (juce::roundToInt (charW * (float) row->lead.getText().length()));
-                row->lead.setBounds (k.withX (r.getX() + 6).withWidth (k.getX() - r.getX() - 6));
-                auto& versionComp = row->link.getParentComponent() != nullptr
-                                      ? static_cast<juce::Component&> (row->link)
-                                      : static_cast<juce::Component&> (row->plain);
-                const int vw = row->link.getParentComponent() != nullptr
-                                 ? row->link.getWidth()
-                                 : juce::roundToInt (charW * (float) row->plain.getText().length());
-                versionComp.setBounds (k.removeFromLeft (vw));
-                row->tail.setBounds (k);
+                auto k = r.removeFromTop (kRowH);
+                auto cell = [&] (int col) { return k.withX (gridX + colX[col]).withWidth (colW[col]); };
+                row->lead.setBounds (cell (0));
+                if (row->link.getParentComponent() != nullptr) row->link .setBounds (cell (1));
+                else                                           row->plain.setBounds (cell (1));
+                row->state .setBounds (cell (2));
+                row->commit.setBounds (cell (3));
+                row->built .setBounds (cell (4));
             }
             r.removeFromTop (5);
             stampArea = juce::Rectangle<int> (8, stampTop, getWidth() - 16, r.getY() - stampTop);
@@ -498,6 +574,8 @@ private:
             r.removeFromTop (6);
             licence.setBounds (r.removeFromTop (kRowH));
             env.setBounds     (r.removeFromTop (kRowH));
+            if (site.getParentComponent() != nullptr)
+                site.setBounds (r.removeFromTop (kRowH));
 
             r.removeFromTop (8);
             {
@@ -511,16 +589,27 @@ private:
             r.removeFromTop (2);
             note.setBounds     (r.removeFromTop (kRowH));
             r.removeFromTop (2);
-            result.setBounds   (r.removeFromTop (20));
-            download.setBounds (r.removeFromTop (kRowH));
+            {
+                // The verdict and its Download are one sentence, so they get one row: the label takes
+                // exactly its text, the link follows it.
+                auto rowU = r.removeFromTop (20);
+                // Both are measured from their TEXT: a HyperlinkButton starts life zero-wide, and asking
+                // it for its own width here once left Download laid out at nothing at all.
+                // One row, one message: either the plain verdict, or the entire line as the link.
+                if (download.isVisible()) download.setBounds (rowU);
+                else                      result  .setBounds (rowU);
+            }
             if (feed.isVisible())
             {
                 auto rowF = r.removeFromBottom (kFeedRowH);
                 feedArea = rowF;
+                if (feedPrompt.isVisible())
+                {
+                    const juce::Font pf { juce::FontOptions (kTextH) };
+                    feedPrompt.setBounds (rowF.removeFromLeft ((int) textWidth (pf, feedPrompt.getText()) + 12));
+                }
                 pawArea = rowF.removeFromLeft (kFeedRowH).reduced (2);
                 feed.setBounds (rowF.withTrimmedLeft (6).removeFromLeft (feed.getWidth()));
-                if (feedPrompt.isVisible())
-                    feedPrompt.setBounds (r.removeFromBottom (kRowH));
             }
         }
 
@@ -544,7 +633,7 @@ private:
                 repaint();
             }
 
-            phase += 0.026f;   // ~2.6 s a cycle at 24 Hz — a breath, not a blink
+            phase += 0.140f;   // ~0.75 s a cycle at 24 Hz — a quick warm flicker
             if (phase > juce::MathConstants<float>::twoPi)
                 phase -= juce::MathConstants<float>::twoPi;
 
@@ -574,6 +663,8 @@ private:
             result.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
             result.setText (juce::String::fromUTF8 ("Checking\xe2\x80\xa6"), juce::dontSendNotification);
             download.setVisible (false);
+            result.setVisible (true);
+            resized();                                   // the verdict's row is measured, not fixed
 
             juce::Component::SafePointer<Panel> safe (this);
             live->checker.checkNow ([safe] (UpdateChecker::Result res)
@@ -592,6 +683,8 @@ private:
             {
                 result.setColour (juce::Label::textColourId, juce::Colour (0xffb0b0b8));
                 result.setText (juce::String::fromUTF8 ("Couldn\xe2\x80\x99t check (offline?)"), juce::dontSendNotification);
+                result.setVisible (true);
+                resized();
                 return;
             }
             if (res.outdated)
@@ -600,15 +693,19 @@ private:
             {
                 result.setColour (juce::Label::textColourId, juce::Colour (0xff7be29a));   // green
                 result.setText (juce::String::fromUTF8 ("\xe2\x9c\x93 Up to date"), juce::dontSendNotification);
+                result.setVisible (true);
+                resized();
             }
         }
 
         void showUpdate (const juce::String& latest, const juce::URL& url)
         {
-            result.setColour (juce::Label::textColourId, config.accentB);
-            result.setText (juce::String::fromUTF8 ("\xe2\x86\x91 Update available: v") + latest, juce::dontSendNotification);
+            result.setVisible (false);
+            download.setButtonText (juce::String::fromUTF8 ("\xe2\x86\x91 Update available: v") + latest
+                                    + juce::String::fromUTF8 ("  \xe2\x80\x94  Download"));
             download.setURL (url);
             download.setVisible (true);
+            resized();
         }
 
         juce::Component::SafePointer<VersionBadge> owner;   // the badge may die under the open popup — ALSO the only route to the checker
@@ -620,11 +717,14 @@ private:
         // LookAndFeel derives from its cell — it is meant to be the loud thing); the marks scale with
         // the title row; the width is set by the TABLE, which is the window's centre of gravity.
         static constexpr float kTextH   = 13.0f;
-        static constexpr float kFeedH   = 16.0f;             // the tip jar speaks a size louder
+        static constexpr float kBylineH = 19.0f;             // "by <maker>" belongs to the logo lockup
+        static constexpr float kFeedH   = 18.0f;             // the tip jar speaks a size louder
         static constexpr int  kRowH     = 18;
-        static constexpr int  kFeedRowH = 26;                // the paw's row
+        static constexpr int  kFeedRowH = 30;                // the paw's row, with air around it
         static constexpr int  kTitleH   = 72;                // [product mark] <wordmark> [maker mark] by <maker>
-        static constexpr int  kWidth    = 600;
+        static constexpr int  kMinWidth = 420;               // the chrome's floor; the table usually wins
+        static constexpr int  kCols     = 5;                 // component | version | state | commit | built
+        static constexpr int  kBoxPad   = 10;                // the table box's inner margin
         static constexpr int  kFooterH  = 18;                // the copy hint's row at the panel's foot
 
         float                 charW = 8.0f;                 // one monospaced advance (column arithmetic)
@@ -634,20 +734,24 @@ private:
         int                   copiedFrames = 0;             // frames left on the receipt
         float                 phase = 0.0f;                 // the tip jar's glow
         juce::Rectangle<int>  feedArea;                     // the row the glow repaints
+        int                   gridTop = 0;                  // the first table row's top (rule drawing)
         juce::Rectangle<int>  titleArea, markArea, catArea; // where paint() draws the title row
         int                   wordmarkX = 0;
+        float                 wordmarkH = 34.0f;            // grown in resized() to fill the title row
         juce::Rectangle<int>  pawArea;                      // where paint() draws the feed row's paw print
 
-        // One table row: "<component>" | version (linked when the row has a repo) | the dim rest.
+        // One table row, a component per cell: the version is a link when the row has a repo, the
+        // rest are dim labels. Empty cells simply draw nothing.
         struct Row
         {
-            juce::Label           lead, plain, tail;
+            juce::Label           lead, plain, state, commit, built;
             juce::HyperlinkButton link;
         };
         juce::OwnedArray<Row> rows;
+        int                   colX[kCols] {}, colW[kCols] {}, tableW = 0;
 
         juce::Label           result, note, licence, env, feedPrompt;
-        juce::HyperlinkButton link, download, feed;
+        juce::HyperlinkButton link, download, feed, site;
         juce::ToggleButton    autoCheck;
         juce::TextButton      check;
     };
