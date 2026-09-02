@@ -116,14 +116,15 @@ int main()
         VersionBadge badge (c, noCore, "Standalone");
         VersionBadge::Panel panel (badge, noCore, "Standalone", nullptr);
         ok (panel.getWidth() == 340 && panel.getHeight() == 342, "empty coreVersion removes exactly one popup row");
-        ok (panel.coreLink.getParentComponent() == nullptr, "empty coreVersion does not attach a core link");
+        ok (panel.depRows.isEmpty(), "empty coreVersion attaches no dependency row");
         ok (paintedAlphaPixels (panel) > 0, "empty-core panel paints nonblank headless content");
 
         const auto withCore = versionConfig ("v0.8.0-3-gabc1234");
         VersionBadge badge2 (c, withCore, "Standalone");
         VersionBadge::Panel panel2 (badge2, withCore, "Standalone", nullptr);
         ok (panel2.getWidth() == 340 && panel2.getHeight() == 360, "non-empty coreVersion keeps the dependency row");
-        ok (panel2.coreLink.getParentComponent() == &panel2, "non-empty coreVersion attaches a core link");
+        ok (panel2.depRows.size() == 1 && panel2.depRows[0]->link.getParentComponent() == &panel2,
+            "non-empty coreVersion attaches one linked dependency row");
     }
 
     group ("VersionBadge stamp block: a readable build date, copied as the rows it shows");
@@ -151,6 +152,34 @@ int main()
             "the clickable block covers every row it copies");
         ok (! panel.stampArea.contains (panel.check.getBounds()), "the update button stays outside the copy target");
         ok (! panel.copied, "the panel opens showing the invitation, not the receipt");
+    }
+
+    group ("VersionBadge dependency list: one aligned row each, the legacy core leading");
+    {
+        BadgeChecker c ("1.2.3");
+        auto cfg = versionConfig ("v0.8.0 (local)");
+        cfg.licence = "AGPL-3.0-or-later";
+        cfg.dependencies = { { "felitronics-appkit", "v0.11.4", "darwinscat/felitronics-appkit" },
+                             { "JUCE", "8.0.14", {} } };
+        VersionBadge badge (c, cfg, "Standalone");
+        VersionBadge::Panel panel (badge, cfg, "Standalone", nullptr);
+
+        ok (panel.depRows.size() == 3, "the legacy core leads the listed dependencies");
+        ok (panel.depRows[0]->lead.getText().startsWith ("core"), "the core row keeps its own label");
+        ok (panel.depRows[1]->link.getButtonText() == "v0.11.4"
+                && panel.depRows[1]->link.getURL().toString (false).endsWith ("/releases/tag/v0.11.4"),
+            "a slug turns the version into a link to its release tag");
+        ok (panel.depRows[2]->link.getParentComponent() == nullptr
+                && panel.depRows[2]->plain.getText() == "8.0.14",
+            "a dependency without a slug stays plain text");
+        const int lead0 = panel.depRows[0]->lead.getText().length();
+        ok (lead0 == panel.depRows[1]->lead.getText().length()
+                && lead0 == panel.depRows[2]->lead.getText().length(),
+            "every label is padded to one column width");
+        ok (panel.tailA.getText().contains ("AGPL-3.0-or-later"), "the licence rides the version row");
+        ok (panel.stampText.contains ("AGPL-3.0-or-later") && panel.stampText.contains ("JUCE  "),
+            "the copy carries the licence and the aligned list");
+        ok (panel.getHeight() == 342 + 3 * 18, "each dependency adds exactly one row");
     }
 
     group ("VersionBadge feed row: on by default at the canonical URL, gone when cleared");

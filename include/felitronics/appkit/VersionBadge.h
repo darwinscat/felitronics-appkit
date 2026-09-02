@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 #include <utility>
+#include <vector>
 
 //==============================================================================
 // felitronics::appkit::VersionBadge — a small clickable "v1.6.0 / <format>" label, bottom-right.
@@ -53,6 +54,22 @@ public:
         int          buildCount  = 0;      // commits since the release tag → "· N commits" when > 0
         bool         gitDirty    = false;  // uncommitted tracked changes → "· dirty"
         juce::String os, arch, builder;    // the environment line: "<format> · <os> <arch> · <builder>"
+
+        // The licence the product ships under, e.g. "AGPL-3.0-or-later". Shown on the version row,
+        // where a reader looking for it will look. Empty hides it.
+        juce::String licence;
+
+        // The dependency rows under the stamp: label + version, aligned into two monospaced columns
+        // (a list, not a sentence), each version linking to that repo's release tag when a slug is
+        // given. The legacy single-core trio below folds in as the FIRST row, so a product that only
+        // ever set coreVersion keeps exactly the window it had.
+        struct Dependency
+        {
+            juce::String label;       // "felitronics-core"
+            juce::String version;     // "v0.24.0 (local)" / "8.0.14" — shown whole, suffix included
+            juce::String ownerRepo;   // "darwinscat/felitronics-core"; empty => plain text, no link
+        };
+        std::vector<Dependency> dependencies;
 
         // Optional dependency line, e.g. "core v0.8.0 (local)" linking to that repo's release tag.
         // coreVersion is a resolved stamp ("v0.8.0", "v0.8.0 (local)", "v0.8.0-3-g1a2b3c4"): the
@@ -201,7 +218,14 @@ private:
             UpdateChecker& chk = ownerBadge.checker;   // construction-time only — never stored
             const juce::String mono = juce::Font::getDefaultMonospacedFontName();
             const juce::String mid  = juce::String::fromUTF8 (" \xc2\xb7 ");   // " · "
-            const bool hasCore = config.coreVersion.isNotEmpty();
+
+            // The dependency list: the legacy single core first (its label carries its own spacing),
+            // then whatever the product listed.
+            std::vector<Config::Dependency> deps;
+            if (config.coreVersion.isNotEmpty())
+                deps.push_back ({ config.coreLabel.trimEnd(), config.coreVersion, config.coreOwnerRepo });
+            for (const auto& d : config.dependencies)
+                deps.push_back (d);
 
             // The brand byline link (under the title mark).
             link.setFont (juce::FontOptions (kTextH), false, juce::Justification::centredLeft);
@@ -225,13 +249,6 @@ private:
             const juce::String ver = displayVersionTag (chk.currentVersion());
             ghLink (verLink,    ver,                                 repoBase + "/releases/tag/" + releaseTagForCurrentVersion (chk.currentVersion()));
             ghLink (commitLink, juce::String ("g") + config.gitHash, repoBase + "/commit/" + config.gitHash);
-            if (hasCore)
-            {
-                // core: strip " (local)" and any "-N-g…" dev suffix → the bare vX.Y.Z release tag.
-                const juce::String coreTag = config.coreVersion.upToFirstOccurrenceOf (" ", false, false)
-                                                               .upToFirstOccurrenceOf ("-", false, false);
-                ghLink (coreLink, coreTag, "https://github.com/" + config.coreOwnerRepo + "/releases/tag/" + coreTag);
-            }
 
             // The plain-text bits that annotate each link line.
             auto info = [&] (juce::Label& l, const juce::String& text)
@@ -243,15 +260,34 @@ private:
                 addAndMakeVisible (l);
             };
             juce::String tailAtxt;                                   // annotates the version line
-            if (config.buildCount > 0) tailAtxt << mid << config.buildCount << " commits";
-            if (config.gitDirty)       tailAtxt << mid << "dirty";
+            if (config.buildCount > 0)        tailAtxt << mid << config.buildCount << " commits";
+            if (config.gitDirty)              tailAtxt << mid << "dirty";
+            if (config.licence.isNotEmpty())  tailAtxt << mid << config.licence;
             info (tailA, tailAtxt);
             info (tailB, juce::String ("  build ") + prettyBuildStamp (config.buildNumber));   // annotates the commit line
             info (line3, pluginFormat + mid + config.os + " " + config.arch + mid + config.builder);
-            if (hasCore)
+
+            // The dependency rows. Labels are padded to the widest one so the versions line up as a
+            // column — the whole point of a list. Monospace makes the padding exact.
+            int widest = 0;
+            for (const auto& d : deps)
+                widest = juce::jmax (widest, d.label.length());
+            for (const auto& d : deps)
             {
-                info (coreLead, config.coreLabel);
-                info (coreTail, config.coreVersion.fromFirstOccurrenceOf (" ", true, false));   // " (local)" or ""
+                auto* row = depRows.add (new DepRow());
+                info (row->lead, d.label.paddedRight (' ', widest + 1));
+                if (d.ownerRepo.isNotEmpty())
+                {
+                    // The link points at the BARE release tag; the row still shows the whole stamp,
+                    // suffix and all, so nothing about the running build is hidden.
+                    const juce::String tag = d.version.upToFirstOccurrenceOf (" ", false, false)
+                                                      .upToFirstOccurrenceOf ("-", false, false);
+                    ghLink (row->link, d.version, "https://github.com/" + d.ownerRepo + "/releases/tag/" + tag);
+                }
+                else
+                {
+                    info (row->plain, d.version);
+                }
             }
 
             check.setButtonText ("Check for updates");
@@ -294,8 +330,8 @@ private:
             stampLines.add (config.productName + " " + ver + tailAtxt);
             stampLines.add (juce::String ("g") + config.gitHash + "  build " + prettyBuildStamp (config.buildNumber));
             stampLines.add (line3.getText());
-            if (hasCore)
-                stampLines.add (config.coreLabel + config.coreVersion);
+            for (const auto& d : deps)                       // the list, aligned as the panel shows it
+                stampLines.add (d.label.paddedRight (' ', widest + 1) + d.version);
             stampText = stampLines.joinIntoString ("\n");
 
             note.setText ("Opt-in. Sends only product + version.", juce::dontSendNotification);
@@ -310,7 +346,7 @@ private:
             const int feedRows = config.feedUrl.isNotEmpty()            // the tip-jar block, when configured:
                                    ? 20 + (config.feedPrompt.isNotEmpty() ? kRowH : 0)   // paw row + prompt line
                                    : 0;
-            setSize (kWidth, (hasCore ? 304 : 286) + feedRows + kFooterH);   // one row less without the dependency line
+            setSize (kWidth, 286 + (int) deps.size() * kRowH + feedRows + kFooterH);   // one row per dependency
         }
 
         // Brand title: [mark] <productName>, mirroring the window header. Drawn (not a Label) so
@@ -373,12 +409,15 @@ private:
             commitLink.setBounds (rowC.removeFromLeft (commitLink.getWidth()));
             tailB.setBounds      (rowC);
             line3.setBounds      (r.removeFromTop (kRowH));
-            if (config.coreVersion.isNotEmpty())
+            for (auto* row : depRows)
             {
                 auto rowK = r.removeFromTop (kRowH);
-                coreLead.setBounds (rowK.removeFromLeft ((int) textWidth (coreLead.getFont(), coreLead.getText()) + 3));
-                coreLink.setBounds (rowK.removeFromLeft (coreLink.getWidth()));
-                coreTail.setBounds (rowK);
+                rowK.removeFromLeft ((int) textWidth (row->lead.getFont(), row->lead.getText()));
+                row->lead.setBounds (rowK.withX (r.getX()).withWidth (rowK.getX() - r.getX()));
+                if (row->link.getParentComponent() != nullptr)
+                    row->link.setBounds (rowK.removeFromLeft (row->link.getWidth()));
+                else
+                    row->plain.setBounds (rowK);
             }
             stampArea = juce::Rectangle<int> (0, stampTop, getWidth(), r.getY() - stampTop);
 
@@ -487,8 +526,16 @@ private:
         juce::Rectangle<int>  titleArea;                    // where paint() draws [mark] <productName>
         juce::Rectangle<int>  bylineArea;                   // where paint() draws the family mark (if any)
         juce::Rectangle<int>  pawArea;                      // where paint() draws the feed row's paw print
-        juce::Label           result, note, tailA, tailB, line3, coreLead, coreTail, feedPrompt;
-        juce::HyperlinkButton link, download, verLink, commitLink, coreLink, feed;
+        // One dependency row: "<label padded>" then the version, linked when the dep has a slug.
+        struct DepRow
+        {
+            juce::Label           lead, plain;
+            juce::HyperlinkButton link;
+        };
+        juce::OwnedArray<DepRow> depRows;
+
+        juce::Label           result, note, tailA, tailB, line3, feedPrompt;
+        juce::HyperlinkButton link, download, verLink, commitLink, feed;
         juce::TextButton      check;
     };
 
