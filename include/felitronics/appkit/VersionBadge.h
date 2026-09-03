@@ -363,7 +363,12 @@ private:
                 // The address, spelled out WITH its scheme: "darwinscat.com/tabbyeq" is a phrase,
                 // "https://darwinscat.com/tabbyeq" is visibly a link, and a window full of monospaced
                 // rows gives a reader no other clue which of them can be clicked.
-                juce::String shown = config.productUrl;
+                //
+                // The QUERY is dropped from what is drawn, never from where the click goes: a
+                // product tags its own link for its site's analytics (?utm_source=…&utm_medium=…),
+                // and that tail is machine talk — it doubles the length of the row and says nothing
+                // to the reader. The href keeps every parameter it was given.
+                juce::String shown = config.productUrl.upToFirstOccurrenceOf ("?", false, false);
                 if (shown.endsWith ("/")) shown = shown.dropLastCharacters (1);
                 ghLink (site, shown, config.productUrl);
             }
