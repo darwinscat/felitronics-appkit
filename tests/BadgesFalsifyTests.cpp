@@ -128,8 +128,8 @@ int main()
         BadgeChecker c ("1.2.3");
         auto cfg = versionConfig ("v0.8.0 (local)");
         cfg.licence = "AGPL-3.0-or-later";
-        cfg.dependencies = { { "felitronics-appkit", "v0.11.4", "darwinscat/felitronics-appkit" },
-                             { "JUCE", "8.0.14", {} } };
+        cfg.dependencies = { { "felitronics-appkit", "v0.11.4", "darwinscat/felitronics-appkit", {}, {} },
+                             { "JUCE", "8.0.14", {}, "gfeedface", "pin" } };
         VersionBadge badge (c, cfg, "Standalone");
         VersionBadge::Panel panel (badge, cfg, "Standalone", nullptr);
 
@@ -141,8 +141,9 @@ int main()
             "the product's state, commit and build clock live in their own columns");
         ok (! panel.rows[0]->link.getButtonText().contains ("dirty"), "...and never in its version cell");
         ok (panel.rows[1]->state.getText() == "local", "a sibling dependency says so in the state column");
-        ok (panel.rows[3]->state.getText().isEmpty() && panel.rows[3]->built.getText().isEmpty(),
-            "a row with nothing to say in a column leaves it empty");
+        ok (panel.rows[3]->state.getText() == "pin" && panel.rows[3]->commit.getText() == "gfeedface",
+            "a dependency may state its commit and origin outright, where the version string cannot");
+        ok (panel.rows[3]->built.getText().isEmpty(), "a row with nothing to say in a column leaves it empty");
         ok (panel.rows[2]->link.getButtonText() == "v0.11.4"
                 && panel.rows[2]->link.getURL().toString (false).endsWith ("/releases/tag/v0.11.4"),
             "a slug turns the version into a link to its release tag");
@@ -172,6 +173,17 @@ int main()
             "the widest column still fits inside the table's box");
         ok (! panel.stampArea.contains (panel.check.getBounds()), "the update button stays outside the copy target");
         ok (! panel.copied, "the panel opens showing the invitation, not the receipt");
+
+        juce::SystemClipboard::copyTextToClipboard ("something else entirely");
+        panel.copyStamp();
+        ok (juce::SystemClipboard::getTextFromClipboard() == panel.stampText,
+            "the copy affordance actually puts the table on the clipboard");
+        ok (panel.copied && panel.copyBtn.getButtonText() != "copy build stamp",
+            "...and says so on the button");
+        panel.copiedFrames = 1;
+        panel.timerCallback();
+        ok (! panel.copied && panel.copyBtn.getButtonText() == juce::String ("copy build stamp"),
+            "the receipt reverts to the invitation");
         panel.showUpdate ("9.9.9", juce::URL ("https://example.invalid/rel"));
         ok (panel.download.isVisible() && ! panel.result.isVisible()
                 && panel.download.getButtonText().contains ("9.9.9")
@@ -183,6 +195,11 @@ int main()
         bool wantsClicks = true, wantsChildClicks = true;
         panel.rows[0]->lead.getInterceptsMouseClicks (wantsClicks, wantsChildClicks);
         ok (! wantsClicks, "a table cell lets the click through to the copy target beneath it");
+        ok (panel.rows[0]->link.getWidth() > (int) VersionBadge::Panel::kTextH * 3
+                && panel.rows[1]->link.getWidth() >= panel.rows[0]->link.getWidth(),
+            "a version cell is wide enough for the link that draws in it");
+        ok (panel.feed.getWidth() > (int) VersionBadge::Panel::kFeedH * 3,
+            "the tip jar's words get a width, not the zero a HyperlinkButton is born with");
         ok (panel.getWidth() > VersionBadge::Panel::kMinWidth, "the table sets the panel's width");
     }
 

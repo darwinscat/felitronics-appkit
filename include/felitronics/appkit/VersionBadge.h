@@ -67,8 +67,14 @@ public:
         struct Dependency
         {
             juce::String label;       // "felitronics-core"
-            juce::String version;     // "v0.24.0 (local)" / "8.0.14" — shown whole, suffix included
+            juce::String version;     // "v0.24.0 (local)" / "8.0.14" — the columns are read out of it
             juce::String ownerRepo;   // "darwinscat/felitronics-core"; empty => plain text, no link
+
+            // Optional, and authoritative when given: a build system usually KNOWS the commit and
+            // where the source came from, while a version string only hints at them (a sibling
+            // checkout sitting exactly on a tag mentions no hash at all).
+            juce::String commit;      // "g3f2a11c"
+            juce::String state;       // "local" / "pin"
         };
         std::vector<Dependency> dependencies;
 
@@ -228,9 +234,9 @@ private:
             // the version as a "-dirty" / "-77-gdeadbee" / " (local)" tail. Nothing is dropped; it
             // just stops being clutter.
             std::vector<Config::Dependency> data;
-            data.push_back ({ config.productName, chk.currentVersion(), chk.ownerRepo() });
+            data.push_back ({ config.productName, chk.currentVersion(), chk.ownerRepo(), {}, {} });
             if (config.coreVersion.isNotEmpty())      // the legacy single-core trio leads the deps
-                data.push_back ({ config.coreLabel.trimEnd(), config.coreVersion, config.coreOwnerRepo });
+                data.push_back ({ config.coreLabel.trimEnd(), config.coreVersion, config.coreOwnerRepo, {}, {} });
             for (const auto& d : config.dependencies)
                 data.push_back (d);
 
@@ -238,6 +244,8 @@ private:
             for (size_t i = 0; i < data.size(); ++i)
             {
                 auto c = splitStamp (data[i].version);
+                if (data[i].commit.isNotEmpty()) c.commit = data[i].commit;   // told beats inferred
+                if (data[i].state .isNotEmpty()) c.state  = data[i].state;
                 if (i == 0)   // the product knows its own hash, dirt and build clock exactly
                 {
                     c.version = releaseTagForCurrentVersion (chk.currentVersion());   // the tag it links to
@@ -323,8 +331,8 @@ private:
                 for (int i = 0; i < rows.size(); ++i)
                     w = juce::jmax (w, (int) textWidth (face, cellText (i, col, data, cells)));
                 colX[col] = x;
-                colW[col] = w;
-                x += w + (w > 0 ? gap : 0);
+                colW[col] = w > 0 ? w + kCellPad : 0;   // a link cell renders with padding of its own
+                x += colW[col] + (w > 0 ? gap : 0);
             }
             tableW = juce::jmax (0, x - gap);
 
@@ -347,7 +355,7 @@ private:
             stampText = stampLines.joinIntoString ("\n");
 
             // The maker's byline, right of the marks.
-            link.setFont (juce::FontOptions (kBylineH), false, juce::Justification::centredLeft);
+            link.setFont (juce::FontOptions (kBylineH), false, juce::Justification::centredLeft);   // resized() refits it
             link.setButtonText (config.byline);
             link.setURL (juce::URL (config.productUrl));
             link.setColour (juce::HyperlinkButton::textColourId, config.accentHover);
@@ -406,6 +414,14 @@ private:
                 addAndMakeVisible (feed);
             }
 
+            copyBtn.setButtonText (kCopyLabel);
+            copyBtn.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+            copyBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colours::transparentBlack);
+            copyBtn.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff8a8a94));
+            copyBtn.setColour (juce::TextButton::textColourOnId,  config.accentB);
+            copyBtn.onClick = [this] { copyStamp(); };
+            addAndMakeVisible (copyBtn);
+
             note.setText ("Opt-in. Sends only product + version.", juce::dontSendNotification);
             note.setFont (juce::FontOptions (kTextH));
             note.setColour (juce::Label::textColourId, juce::Colour (0xff60606a));
@@ -422,7 +438,7 @@ private:
             // The TABLE sets the width: it is the widest thing in the window, and a grid that has to
             // wrap is not a grid. kMinWidth keeps the chrome from collapsing when the table is tiny.
             setSize (juce::jmax (kMinWidth, 28 + 2 * kBoxPad + tableW),
-                     250 + (config.productUrl.isNotEmpty() ? kRowH : 0)
+                     250 + kFeedGap + (config.productUrl.isNotEmpty() ? kRowH : 0)
                          + (int) rows.size() * kRowH + feedRows);
         }
 
@@ -502,12 +518,7 @@ private:
                                 config.accentB.withMultipliedBrightness (0.86f + 0.14f * k));
             }
 
-            // The copy affordance's small print, bottom-right: the invitation, then the receipt.
-            g.setFont (juce::FontOptions (kTextH).withName (juce::Font::getDefaultMonospacedFontName()));
-            g.setColour (copied ? config.accentB : juce::Colour (0xff60606a));
-            g.drawText (copied ? juce::String::fromUTF8 ("copied \xe2\x9c\x93") : juce::String ("click the table to copy it"),
-                        getLocalBounds().reduced (14, 12).removeFromBottom (kFooterH),
-                        juce::Justification::centredRight, false);
+            // (the copy affordance is a real button now — see copyBtn in resized())
         }
 
         juce::Font wordmarkFontAt (float h) const
@@ -521,34 +532,43 @@ private:
         void resized() override
         {
             auto r = getLocalBounds().reduced (14, 12);
-            r.removeFromBottom (kFooterH);              // the copy hint's row — drawn in paint()
+            {
+                auto footer = r.removeFromBottom (kFooterH);
+                const juce::Font cf { juce::FontOptions (kTextH) };
+                copyBtn.setBounds (footer.removeFromRight ((int) textWidth (cf, kCopyLabel) + 26));
+            }
 
             titleArea = r.removeFromTop (kTitleH);
             {
-                auto row = titleArea;
+                // The lockup is TWO halves: [product mark] name | [maker mark] by <maker>. Each name
+                // is fitted to its own half, and then BOTH take the smaller of the two sizes — one
+                // type size across the row, on one axis, whatever the names happen to be.
                 const int d = (int) (kTitleH * 0.92f);
+                auto left  = titleArea.withWidth (titleArea.getWidth() / 2);
+                auto right = titleArea.withTrimmedLeft (titleArea.getWidth() / 2);
 
-                // The lockup FILLS the row: the table decides the window's width, so the wordmark is
-                // scaled to take exactly the space the marks and the byline leave it (within reason —
-                // it never shrinks past legible or grows past the row's own height).
-                const juce::Font bf { juce::FontOptions (kBylineH) };
-                const int fixed = d + 8 + 16 + (config.drawByline != nullptr ? d + 8 : 0)
-                                    + (int) textWidth (bf, config.byline);
-                const float probeH = kTitleH * 0.5f;
-                const float probeW = juce::jmax (1.0f, textWidth (wordmarkFontAt (probeH), config.productName));
-                wordmarkH = juce::jlimit (kTitleH * 0.34f, kTitleH * 0.72f,
-                                          probeH * (float) juce::jmax (1, row.getWidth() - fixed) / probeW);
-
-                markArea = row.removeFromLeft (d).withSizeKeepingCentre (d, d);
-                row.removeFromLeft (8);
-                wordmarkX = row.getX();
-                row.removeFromLeft ((int) textWidth (wordmarkFont(), config.productName) + 16);
+                markArea = left.removeFromLeft (d).withSizeKeepingCentre (d, d);
+                left.removeFromLeft (10);
                 if (config.drawByline != nullptr)
                 {
-                    catArea = row.removeFromLeft (d).withSizeKeepingCentre (d, d);
-                    row.removeFromLeft (8);
+                    catArea = right.removeFromLeft (d).withSizeKeepingCentre (d, d);
+                    right.removeFromLeft (10);
                 }
-                link.setBounds (row.withSizeKeepingCentre (row.getWidth(), (int) kBylineH + 6));
+
+                const float probeH = kTitleH * 0.5f;
+                auto fitted = [&] (const juce::Font& probe, const juce::String& text, int avail)
+                {
+                    return probeH * (float) juce::jmax (1, avail)
+                                  / juce::jmax (1.0f, textWidth (probe, text));
+                };
+                const float hName   = fitted (wordmarkFontAt (probeH), config.productName, left.getWidth() - kCellPad);
+                const float hByline = fitted (juce::Font { juce::FontOptions (probeH) },
+                                              config.byline, right.getWidth() - kCellPad);
+                wordmarkH = juce::jlimit (kTitleH * 0.22f, kTitleH * 0.62f, juce::jmin (hName, hByline));
+
+                wordmarkX = left.getX();
+                link.setFont (juce::FontOptions (wordmarkH), false, juce::Justification::centredLeft);
+                link.setBounds (right.withSizeKeepingCentre (right.getWidth(), (int) wordmarkH + 10));
             }
             r.removeFromTop (8);
 
@@ -603,24 +623,35 @@ private:
             {
                 auto rowF = r.removeFromBottom (kFeedRowH);
                 feedArea = rowF;
+                // The paw's halo reaches half its own width past the print, so the words on either
+                // side stand well clear of it — a glow that touches the text reads as a smudge.
                 if (feedPrompt.isVisible())
                 {
-                    const juce::Font pf { juce::FontOptions (kTextH) };
-                    feedPrompt.setBounds (rowF.removeFromLeft ((int) textWidth (pf, feedPrompt.getText()) + 12));
+                    const juce::Font pf { juce::FontOptions (kFeedH) };
+                    feedPrompt.setBounds (rowF.removeFromLeft ((int) textWidth (pf, feedPrompt.getText()) + 22));
                 }
-                pawArea = rowF.removeFromLeft (kFeedRowH).reduced (2);
-                feed.setBounds (rowF.withTrimmedLeft (6).removeFromLeft (feed.getWidth()));
+                pawArea = rowF.removeFromLeft (kFeedRowH + 10).reduced (7);
+                const juce::Font ff { juce::FontOptions (kFeedH, juce::Font::bold) };
+                feed.setBounds (rowF.withTrimmedLeft (16)
+                                    .removeFromLeft ((int) textWidth (ff, feed.getButtonText()) + kCellPad));
             }
         }
 
         // A click that landed on the stamp block (the links and buttons take their own first).
         void mouseDown (const juce::MouseEvent& e) override
         {
-            if (! stampArea.contains (e.getPosition()))
-                return;
+            if (stampArea.contains (e.getPosition()))
+                copyStamp();
+        }
+
+        // The table is clickable, but a click target has to be VISIBLE to be found: the button says
+        // out loud what the table quietly offers, and both end here.
+        void copyStamp()
+        {
             juce::SystemClipboard::copyTextToClipboard (stampText);
             copied = true;
             copiedFrames = 27;   // ~1.1 s at 24 Hz, then back to the invitation
+            copyBtn.setButtonText (juce::String::fromUTF8 ("copied \xe2\x9c\x93"));
             repaint();
         }
 
@@ -630,6 +661,7 @@ private:
             if (copiedFrames > 0 && --copiedFrames == 0)
             {
                 copied = false;
+                copyBtn.setButtonText (kCopyLabel);
                 repaint();
             }
 
@@ -725,6 +757,9 @@ private:
         static constexpr int  kMinWidth = 420;               // the chrome's floor; the table usually wins
         static constexpr int  kCols     = 5;                 // component | version | state | commit | built
         static constexpr int  kBoxPad   = 10;                // the table box's inner margin
+        static constexpr int  kCellPad  = 10;                // slack for the padding a link draws itself
+        static constexpr int  kFeedGap  = 18;                // air between the update block and the cat —
+                                                             // two different conversations
         static constexpr int  kFooterH  = 18;                // the copy hint's row at the panel's foot
 
         float                 charW = 8.0f;                 // one monospaced advance (column arithmetic)
@@ -753,6 +788,8 @@ private:
         juce::Label           result, note, licence, env, feedPrompt;
         juce::HyperlinkButton link, download, feed, site;
         juce::ToggleButton    autoCheck;
+        juce::TextButton      copyBtn;
+        static constexpr const char* kCopyLabel = "copy build stamp";
         juce::TextButton      check;
     };
 
