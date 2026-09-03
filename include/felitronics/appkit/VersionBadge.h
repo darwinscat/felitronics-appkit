@@ -329,7 +329,24 @@ private:
                 else
                     info (row->plain, c.version, ink);
                 info (row->state,  c.state,  inkDim);
-                info (row->commit, c.commit, inkDim);
+
+                // The commit is a link too, and on a row that is NOT on a release it is the only
+                // honest one: "v0.5.3+11" links to a tag that is eleven commits behind what was
+                // actually built, while the hash beside it names the source exactly. A row whose
+                // work is not pushed (a local checkout, a private branch) links to a page that does
+                // not exist yet — the state column already says "local", so the reader is warned.
+                if (d.ownerRepo.isNotEmpty() && c.commit.isNotEmpty())
+                {
+                    ghLink (row->commitLink, c.commit,
+                            "https://github.com/" + d.ownerRepo + "/commit/"
+                                + (c.commit.startsWith ("g") ? c.commit.substring (1) : c.commit));
+                    row->commitLink.setColour (juce::HyperlinkButton::textColourId, inkDim.brighter (0.35f));
+                }
+                else
+                {
+                    info (row->commit, c.commit, inkDim);
+                }
+
                 info (row->built,  c.built,  inkDim);
 
                 // The COPY keeps the padding: a clipboard has no columns, only spaces.
@@ -647,7 +664,8 @@ private:
                 if (row->link.getParentComponent() != nullptr) row->link .setBounds (cell (1));
                 else                                           row->plain.setBounds (cell (1));
                 row->state .setBounds (cell (2));
-                row->commit.setBounds (cell (3));
+                if (row->commitLink.getParentComponent() != nullptr) row->commitLink.setBounds (cell (3));
+                else                                                 row->commit    .setBounds (cell (3));
                 row->built .setBounds (cell (4));
             }
             r.removeFromTop (5);
@@ -854,12 +872,12 @@ private:
         float                 wordmarkH = 34.0f;            // grown in resized() to fill the title row
         juce::Rectangle<int>  pawArea;                      // where paint() draws the feed row's paw print
 
-        // One table row, a component per cell: the version is a link when the row has a repo, the
-        // rest are dim labels. Empty cells simply draw nothing.
+        // One table row, a component per cell: version and commit are links when the row has a repo,
+        // the rest are dim labels. Empty cells simply draw nothing.
         struct Row
         {
             juce::Label           lead, plain, state, commit, built;
-            juce::HyperlinkButton link;
+            juce::HyperlinkButton link, commitLink;
         };
         juce::OwnedArray<Row> rows;
         int                   colX[kCols] {}, colW[kCols] {}, tableW = 0;
