@@ -508,6 +508,7 @@ private:
                 noticeText.setJustificationType (juce::Justification::topLeft);
                 noticeText.setColour (juce::Label::textColourId, juce::Colour (0xff6f6f79));
                 noticeText.setMinimumHorizontalScale (1.0f);   // wrap, never squeeze the type
+                noticeText.setBorderSize (juce::BorderSize<int> (0));   // measured area == painted area
                 addAndMakeVisible (noticeText);
             }
 
@@ -535,10 +536,16 @@ private:
             noticeH = 0;
             if (config.notice.isNotEmpty())
             {
+                // Measured at the width the label will actually paint into (the panel's own 14 px
+                // margins, and no Label border — it is set to zero above), then one line of slack:
+                // fitted text breaks lines its own way, and a paragraph that needs one more row than
+                // the arrangement predicted would be CLIPPED, never squeezed (the scale is locked).
+                const juce::Font nf { juce::FontOptions (kNoticeH) };
                 juce::GlyphArrangement ga;
-                ga.addJustifiedText (juce::Font { juce::FontOptions (kNoticeH) }, config.notice,
-                                     0.0f, 0.0f, (float) (width - 28), juce::Justification::topLeft);
-                noticeH = kNoticeGap + (int) std::ceil (ga.getBoundingBox (0, -1, true).getHeight()) + 4;
+                ga.addJustifiedText (nf, config.notice, 0.0f, 0.0f, (float) (width - 28),
+                                     juce::Justification::topLeft);
+                noticeH = kNoticeGap
+                            + (int) std::ceil (ga.getBoundingBox (0, -1, true).getHeight() + nf.getHeight());
             }
 
             setSize (width, 250 + kFeedGap + (int) rows.size() * kRowH + feedRows + noticeH);
