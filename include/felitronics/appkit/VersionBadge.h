@@ -48,6 +48,14 @@ public:
         juce::String byline = "by Darwin's Cat";
         juce::String productUrl;
 
+        // Where the BYLINE goes, which is not where the product goes: the title row is two lockups
+        // side by side, and each half should lead where it is pointing — the product's mark and name
+        // to the product's page, the maker's mark and name to the maker's home. A product may hang
+        // its own campaign tail on either; both hrefs keep every parameter they were given (only the
+        // spelled-out address under the table drops the query, and only from what is DRAWN).
+        // Cleared => the byline falls back to productUrl, the way it behaved before it had a choice.
+        juce::String makerUrl = "https://darwinscat.com";
+
         // The build stamp. Each product bakes its own generated version header at build time
         // (end users have no git repo) — pass those constants through here.
         juce::String gitHash;              // short HEAD hash → the "g<hash>" line linking to /commit/<hash>
@@ -400,10 +408,16 @@ private:
             // The maker's byline, right of the marks.
             link.setFont (juce::FontOptions (kBylineH), false, juce::Justification::centredLeft);   // resized() refits it
             link.setButtonText (config.byline);
-            link.setURL (juce::URL (config.productUrl));
+            link.setURL (juce::URL (config.makerUrl.isNotEmpty() ? config.makerUrl : config.productUrl));
             link.setColour (juce::HyperlinkButton::textColourId, config.accentHover);
             link.setJustificationType (juce::Justification::centredLeft);
             addAndMakeVisible (link);
+
+            // ...and the other half of the lockup opens the product's own page. The tooltip spells
+            // the address out, tail and all: the title shows names, not URLs.
+            productHit.url = juce::URL (config.productUrl);
+            productHit.setTooltip (config.productUrl);
+            addAndMakeVisible (productHit);
 
             check.setButtonText ("Check for updates");
             check.onClick = [this] { runCheck(); };
@@ -447,7 +461,8 @@ private:
                     feedPrompt.setColour (juce::Label::textColourId, ink);
                     addAndMakeVisible (feedPrompt);
                 }
-                const juce::URL feedLink = brand::feedTheCatLink (config.productName, config.feedUrl);
+                // The jar is signed with all three: which app, which machine, which wrapper.
+                const juce::URL feedLink = brand::feedTheCatLink (config.productName, config.feedUrl, pluginFormat);
                 feed.setButtonText (config.feedLabel);
                 feed.setURL (feedLink);
                 feed.setFont (juce::FontOptions (kFeedH, juce::Font::bold), false, juce::Justification::centredLeft);
@@ -551,7 +566,9 @@ private:
 
             const auto wf = wordmarkFont();
             g.setFont (wf);
-            g.setColour (config.text);
+            // The mark and the name are painted, so what says "this is a link" is the hand over them
+            // and this lift under it — the same grammar a painted stamp uses anywhere else.
+            g.setColour (productHit.isMouseOver() ? config.text.brighter (0.35f) : config.text);
             g.drawSingleLineText (config.productName, wordmarkX,
                                   juce::roundToInt (cy + (wf.getAscent() - wf.getDescent()) * 0.5f));
 
@@ -648,6 +665,9 @@ private:
                 wordmarkX = left.getX();
                 link.setFont (juce::FontOptions (wordmarkH), false, juce::Justification::centredLeft);
                 link.setBounds (right.withSizeKeepingCentre (right.getWidth(), (int) wordmarkH + 10));
+
+                // The product's half of the lockup — its mark and its name — opens the product page.
+                productHit.setBounds (titleArea.withWidth (titleArea.getWidth() / 2));
             }
             r.removeFromTop (8);
 
@@ -882,6 +902,27 @@ private:
         juce::OwnedArray<Row> rows;
         int                   colX[kCols] {}, colW[kCols] {}, tableW = 0;
 
+        // The painted half of the title row, made pressable: a component with no face of its own,
+        // sitting over the mark and the wordmark. It carries the URL, the hand and the hover —
+        // paint() reads isMouseOver() and lifts the name under the cursor.
+        struct TitleHit final : public juce::Component,
+                                public juce::SettableTooltipClient
+        {
+            TitleHit() { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+
+            juce::URL url;
+
+            void mouseUp (const juce::MouseEvent& e) override
+            {
+                if (getLocalBounds().contains (e.getPosition()) && url.isWellFormed())
+                    url.launchInDefaultBrowser();
+            }
+
+            void mouseEnter (const juce::MouseEvent&) override { if (auto* p = getParentComponent()) p->repaint(); }
+            void mouseExit  (const juce::MouseEvent&) override { if (auto* p = getParentComponent()) p->repaint(); }
+        };
+
+        TitleHit              productHit;
         juce::Label           result, note, licence, env, feedPrompt;
         juce::HyperlinkButton link, download, feed, site;
 

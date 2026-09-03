@@ -158,6 +158,15 @@ int main()
         ok (panel.rows[0]->lead.getText() == "Badge Gate" && panel.rows[3]->lead.getText() == "JUCE",
             "a cell holds its own text — the columns do the aligning, not padding");
         ok (panel.licence.getText() == "AGPL-3.0-or-later", "the licence has its own row under the table");
+        panel.resized();
+        ok (panel.link.getURL().toString (false) == "https://darwinscat.com"
+                && panel.productHit.url.toString (false) == "https://example.invalid/badge-gate",
+            "the title's two halves lead where each is pointing: the name home to the product, the "
+            "byline home to the maker");
+        ok (panel.productHit.getBounds().contains (panel.markArea)
+                && ! panel.productHit.getBounds().intersects (panel.link.getBounds()),
+            "the product's hit area covers its own mark and stops before the byline's");
+
         ok (panel.site.getWidth() > (int) VersionBadge::Panel::kTextH * 4
                 && panel.site.getRight() <= panel.getWidth()
                 && panel.site.getButtonText().startsWith ("https://"),
@@ -255,9 +264,12 @@ int main()
         ok (panel.feed.getButtonText() == "Feed the Cat", "feed link carries the default label");
         ok (panel.feedPrompt.getParentComponent() == &panel && panel.feedPrompt.getText() == "Like the app?",
             "the default block leads with the quiet prompt line");
-        ok (panel.feed.getURL().toString (true)
-                == juce::String (brand::feedTheCatUrl) + "?from=badgegate",
-            "feed link opens the canonical hop, signed with the product slug");
+        {
+            const juce::String fed = panel.feed.getURL().toString (true);
+            ok (fed.startsWith (juce::String (brand::feedTheCatUrl) + "?from=badgegate")
+                    && fed.contains ("platform=") && fed.contains ("format=standalone"),
+                "feed link opens the canonical hop, signed with product, machine and wrapper");
+        }
         panel.resized();
         ok (! panel.pawArea.isEmpty(), "a visible feed row lays out a paw to draw");
         bool pawClicks = false, pawChildClicks = false;
@@ -298,17 +310,35 @@ int main()
 
     group ("brand::feedTheCatLink signs the hop with a folded product slug");
     {
+        // The platform is compiled in, so the tests name it the same way the header does rather than
+        // hard-coding one OS and failing on the other two gates.
+       #if JUCE_MAC
+        const juce::String platform = "platform=macos";
+       #elif JUCE_WINDOWS
+        const juce::String platform = "platform=windows";
+       #elif JUCE_LINUX
+        const juce::String platform = "platform=linux";
+       #else
+        const juce::String platform = "platform=other";
+       #endif
+
         ok (brand::feedTheCatLink ("LooperCat").toString (true)
-                == juce::String (brand::feedTheCatUrl) + "?from=loopercat",
-            "product name folds to a bare lowercase slug");
+                == juce::String (brand::feedTheCatUrl) + "?from=loopercat&" + platform,
+            "product name folds to a bare lowercase slug, and the machine signs beside it");
         ok (brand::feedTheCatLink ("Badge Gate 2!").toString (true)
-                == juce::String (brand::feedTheCatUrl) + "?from=badgegate2",
+                == juce::String (brand::feedTheCatUrl) + "?from=badgegate2&" + platform,
             "spaces and punctuation drop out of the slug");
-        ok (brand::feedTheCatLink ("\u00e9\u00e9").toString (true) == juce::String (brand::feedTheCatUrl),
-            "a name with no sluggable characters leaves the hop unsigned");
+        ok (brand::feedTheCatLink ("\u00e9\u00e9").toString (true)
+                == juce::String (brand::feedTheCatUrl) + "?" + platform,
+            "a name with no sluggable characters leaves the hop unsigned, but still says where from");
         ok (brand::feedTheCatLink ("LooperCat", "https://example.invalid/hop").toString (true)
-                == "https://example.invalid/hop?from=loopercat",
+                == "https://example.invalid/hop?from=loopercat&" + platform,
             "a custom base keeps the signature");
+        ok (brand::feedTheCatLink ("LooperCat", brand::feedTheCatUrl, "VST3").toString (true)
+                == juce::String (brand::feedTheCatUrl) + "?from=loopercat&" + platform + "&format=vst3",
+            "a known wrapper signs as a third column, folded like the slug");
+        ok (! brand::feedTheCatLink ("LooperCat", brand::feedTheCatUrl, "").toString (true).contains ("format="),
+            "an unknown wrapper adds no empty column");
     }
 
     group ("VersionBadge SafePointer paths no-op after the owner badge is gone");

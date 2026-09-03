@@ -81,16 +81,44 @@ inline void drawOrbitRings (juce::Graphics& g, float cx, float cy, float d, bool
 // clearing VersionBadge::Config::feedUrl.
 inline const char* const feedTheCatUrl = "https://darwinscat.com/feed-the-cat";
 
-// The click-through for a product's "Feed the Cat" affordance: the base URL plus the product's
-// signature — ?from=<slug> — so the server's access log can tell which app fed the cat. The slug
-// is the product name folded to bare [a-z0-9]; the parameter never reaches the payment page (the
-// hop logs it and redirects clean).
-inline juce::URL feedTheCatLink (const juce::String& productName, const juce::String& baseUrl = feedTheCatUrl)
+// The click-through for a product's "Feed the Cat" affordance: the base URL plus the signature of
+// the thing that is asking — `from` (the product name folded to bare [a-z0-9]), `platform` (the OS
+// this binary was compiled for) and, when the caller knows it, `format` (VST3 / AU / CLAP /
+// Standalone). Three columns in the server's access log: which app fed the cat, from which kind of
+// machine, and whether the player was in a host or standing alone.
+//
+// None of it reaches the payment page — the hop logs the query and redirects clean — so this is
+// access-log statistics, not tracking, and it carries nothing about the person.
+//
+// `baseUrl` stays the second parameter it has always been, so a product that passes its own hop
+// (with its own campaign tail on it) keeps working and gains the new pair for free.
+inline juce::URL feedTheCatLink (const juce::String& productName,
+                                 const juce::String& baseUrl = feedTheCatUrl,
+                                 const juce::String& pluginFormat = {})
 {
-    const juce::String slug = productName.toLowerCase()
-                                         .retainCharacters ("abcdefghijklmnopqrstuvwxyz0123456789");
+   #if JUCE_MAC
+    const char* const platform = "macos";
+   #elif JUCE_WINDOWS
+    const char* const platform = "windows";
+   #elif JUCE_LINUX
+    const char* const platform = "linux";
+   #else
+    const char* const platform = "other";
+   #endif
+
+    const auto fold = [] (const juce::String& s)
+    {
+        return s.toLowerCase().retainCharacters ("abcdefghijklmnopqrstuvwxyz0123456789");
+    };
+
+    const juce::String slug = fold (productName);
     juce::URL url (baseUrl);
-    return slug.isEmpty() ? url : url.withParameter ("from", slug);
+    if (slug.isNotEmpty())
+        url = url.withParameter ("from", slug);
+    url = url.withParameter ("platform", platform);
+
+    const juce::String fmt = fold (pluginFormat);
+    return fmt.isEmpty() ? url : url.withParameter ("format", fmt);
 }
 
 // The paw print for the "Feed the Cat" affordance — where a cat ate, it leaves a print. A pad and
