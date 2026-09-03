@@ -413,10 +413,10 @@ private:
             link.setJustificationType (juce::Justification::centredLeft);
             addAndMakeVisible (link);
 
-            // ...and the other half of the lockup opens the product's own page. The tooltip spells
-            // the address out, tail and all: the title shows names, not URLs.
+            // ...and the other half of the lockup opens the product's own page. No tooltip: the
+            // address is spelled out under the table, and a hint that repeats what the window
+            // already says is one more thing to read past.
             productHit.url = juce::URL (config.productUrl);
-            productHit.setTooltip (config.productUrl);
             addAndMakeVisible (productHit);
 
             check.setButtonText ("Check for updates");
