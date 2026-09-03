@@ -113,7 +113,11 @@ public:
         // The dialog's own ground. As a call-out the panel needs none (the bubble is painted by the
         // LookAndFeel under it); as an About window it is the only thing between the reader and the
         // editor, so it paints itself, opaque.
-        juce::Colour ground      { 0xff1a1e24 };
+        //
+        // The default is the family's window ground — the near-black violet the faces sit on — so a
+        // product gets the right colour without saying anything. Override it only where the product's
+        // own panel colour genuinely differs.
+        juce::Colour ground      { 0xff111119 };
 
         // The small print under the update button. It answers "what happens if I press this?" —
         // where the request goes, and that nothing comes back to the maker. The word "opt-in" is not
