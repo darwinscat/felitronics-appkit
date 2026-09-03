@@ -125,6 +125,12 @@ public:
             "The request goes to github.com, which sees your IP address and this product's name and "
             "version. Nothing reaches the maker, and the versions are compared here on your machine.";
 
+        // A product's OWN small print, under everything else: a trademark notice, an attribution, a
+        // sentence somebody's lawyer asked for. Optional and free-form — paragraphs separated by a
+        // blank line, wrapped to the window's width, and the window grows by exactly what it takes.
+        // Empty (the default) and the panel is the one every other product already knows.
+        juce::String notice;
+
         // The "Feed the cat" block at the popover's foot: a quiet one-line prompt, then a paw
         // print + hyperlink opening the family tip jar. ON by default so every product inherits
         // it with an appkit bump; an empty feedUrl hides the whole block and the popup shrinks
@@ -495,6 +501,16 @@ private:
             copyBtn.onClick = [this] { copyStamp(); };
             addAndMakeVisible (copyBtn);
 
+            if (config.notice.isNotEmpty())
+            {
+                noticeText.setText (config.notice, juce::dontSendNotification);
+                noticeText.setFont (juce::FontOptions (kNoticeH));
+                noticeText.setJustificationType (juce::Justification::topLeft);
+                noticeText.setColour (juce::Label::textColourId, juce::Colour (0xff6f6f79));
+                noticeText.setMinimumHorizontalScale (1.0f);   // wrap, never squeeze the type
+                addAndMakeVisible (noticeText);
+            }
+
             note.setText (config.updateNote, juce::dontSendNotification);
             note.setTooltip (config.updateNoteDetail);
             autoCheck.setTooltip (config.updateNoteDetail);
@@ -512,8 +528,20 @@ private:
             const int feedRows = config.feedUrl.isNotEmpty() ? kFeedRowH : 0;
             // The TABLE sets the width: it is the widest thing in the window, and a grid that has to
             // wrap is not a grid. kMinWidth keeps the chrome from collapsing when the table is tiny.
-            setSize (juce::jmax (kMinWidth, 28 + 2 * kBoxPad + tableW),
-                     250 + kFeedGap + (int) rows.size() * kRowH + feedRows);
+            const int width = juce::jmax (kMinWidth, 28 + 2 * kBoxPad + tableW);
+
+            // The notice is measured, not guessed: laid out at the width it will actually get, so a
+            // long paragraph grows the window instead of being clipped by it.
+            noticeH = 0;
+            if (config.notice.isNotEmpty())
+            {
+                juce::GlyphArrangement ga;
+                ga.addJustifiedText (juce::Font { juce::FontOptions (kNoticeH) }, config.notice,
+                                     0.0f, 0.0f, (float) (width - 28), juce::Justification::topLeft);
+                noticeH = kNoticeGap + (int) std::ceil (ga.getBoundingBox (0, -1, true).getHeight()) + 4;
+            }
+
+            setSize (width, 250 + kFeedGap + (int) rows.size() * kRowH + feedRows + noticeH);
         }
 
         struct Cells { juce::String version, state, commit, built; };
@@ -727,6 +755,9 @@ private:
                 if (download.isVisible()) download.setBounds (rowU);
                 else                      result  .setBounds (rowU);
             }
+            if (noticeText.isVisible())   // the foot of everything: the feed row sits above it
+                noticeText.setBounds (r.removeFromBottom (noticeH).withTrimmedTop (kNoticeGap));
+
             if (feed.isVisible())
             {
                 auto rowF = r.removeFromBottom (kFeedRowH);
@@ -878,10 +909,13 @@ private:
         static constexpr int  kFeedGap  = 18;                // air between the update block and the cat —
                                                              // two different conversations
         static constexpr int  kFooterH  = 18;                // the copy hint's row at the panel's foot
+        static constexpr float kNoticeH = 11.0f;             // the product's own small print, at the foot
+        static constexpr int  kNoticeGap = 12;               // air above it: it belongs to nobody's block
 
         float                 charW = 8.0f;                 // one monospaced advance (column arithmetic)
         juce::String          stampText;                    // what a click on the table puts on the clipboard
         juce::Rectangle<int>  stampArea;                    // the table's box — also the click target
+        int                   noticeH = 0;                  // measured in the ctor, spent in resized()
         bool                  copied = false;               // showing the receipt rather than the invitation
         int                   copiedFrames = 0;             // frames left on the receipt
         float                 phase = 0.0f;                 // the tip jar's glow
@@ -923,7 +957,7 @@ private:
         };
 
         TitleHit              productHit;
-        juce::Label           result, note, licence, env, feedPrompt;
+        juce::Label           result, note, licence, env, feedPrompt, noticeText;
         juce::HyperlinkButton link, download, feed, site;
 
         // A button with no face of its own: the paw print painted under it IS the face.
