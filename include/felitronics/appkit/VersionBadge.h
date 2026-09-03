@@ -113,7 +113,11 @@ public:
         // The dialog's own ground. As a call-out the panel needs none (the bubble is painted by the
         // LookAndFeel under it); as an About window it is the only thing between the reader and the
         // editor, so it paints itself, opaque.
-        juce::Colour ground      { 0xff1a1e24 };
+        //
+        // The default is the family's window ground — the near-black violet the faces sit on — so a
+        // product gets the right colour without saying anything. Override it only where the product's
+        // own panel colour genuinely differs.
+        juce::Colour ground      { 0xff111119 };
 
         // The small print under the update button. It answers "what happens if I press this?" —
         // where the request goes, and that nothing comes back to the maker. The word "opt-in" is not
@@ -124,6 +128,12 @@ public:
         juce::String updateNoteDetail =
             "The request goes to github.com, which sees your IP address and this product's name and "
             "version. Nothing reaches the maker, and the versions are compared here on your machine.";
+
+        // A product's OWN small print, under everything else: a trademark notice, an attribution, a
+        // sentence somebody's lawyer asked for. Optional and free-form — paragraphs separated by a
+        // blank line, wrapped to the window's width, and the window grows by exactly what it takes.
+        // Empty (the default) and the panel is the one every other product already knows.
+        juce::String notice;
 
         // The "Feed the cat" block at the popover's foot: a quiet one-line prompt, then a paw
         // print + hyperlink opening the family tip jar. ON by default so every product inherits
@@ -487,13 +497,17 @@ private:
             closeBtn.setTooltip ("Close");
             addChildComponent (closeBtn);   // shown only when a host hands us an onClose
 
-            copyBtn.setButtonText (kCopyLabel);
-            copyBtn.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-            copyBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colours::transparentBlack);
-            copyBtn.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff8a8a94));
-            copyBtn.setColour (juce::TextButton::textColourOnId,  config.accentB);
-            copyBtn.onClick = [this] { copyStamp(); };
-            addAndMakeVisible (copyBtn);
+
+            if (config.notice.isNotEmpty())
+            {
+                noticeText.setText (config.notice, juce::dontSendNotification);
+                noticeText.setFont (juce::FontOptions (kNoticeH));
+                noticeText.setJustificationType (juce::Justification::topLeft);
+                noticeText.setColour (juce::Label::textColourId, juce::Colour (0xff6f6f79));
+                noticeText.setMinimumHorizontalScale (1.0f);   // wrap, never squeeze the type
+                noticeText.setBorderSize (juce::BorderSize<int> (0));   // measured area == painted area
+                addAndMakeVisible (noticeText);
+            }
 
             note.setText (config.updateNote, juce::dontSendNotification);
             note.setTooltip (config.updateNoteDetail);
@@ -512,8 +526,26 @@ private:
             const int feedRows = config.feedUrl.isNotEmpty() ? kFeedRowH : 0;
             // The TABLE sets the width: it is the widest thing in the window, and a grid that has to
             // wrap is not a grid. kMinWidth keeps the chrome from collapsing when the table is tiny.
-            setSize (juce::jmax (kMinWidth, 28 + 2 * kBoxPad + tableW),
-                     250 + kFeedGap + (int) rows.size() * kRowH + feedRows);
+            const int width = juce::jmax (kMinWidth, 28 + 2 * kBoxPad + tableW);
+
+            // The notice is measured, not guessed: laid out at the width it will actually get, so a
+            // long paragraph grows the window instead of being clipped by it.
+            noticeH = 0;
+            if (config.notice.isNotEmpty())
+            {
+                // Measured at the width the label will actually paint into (the panel's own 14 px
+                // margins, and no Label border — it is set to zero above), then one line of slack:
+                // fitted text breaks lines its own way, and a paragraph that needs one more row than
+                // the arrangement predicted would be CLIPPED, never squeezed (the scale is locked).
+                const juce::Font nf { juce::FontOptions (kNoticeH) };
+                juce::GlyphArrangement ga;
+                ga.addJustifiedText (nf, config.notice, 0.0f, 0.0f, (float) (width - 28),
+                                     juce::Justification::topLeft);
+                noticeH = kNoticeGap
+                            + (int) std::ceil (ga.getBoundingBox (0, -1, true).getHeight() + nf.getHeight());
+            }
+
+            setSize (width, 250 - kFooterH + kFeedGap + (int) rows.size() * kRowH + feedRows + noticeH);
         }
 
         struct Cells { juce::String version, state, commit, built; };
@@ -612,7 +644,15 @@ private:
                                 config.accentB.withMultipliedBrightness (0.86f + 0.14f * k));
             }
 
-            // (the copy affordance is a real button now — see copyBtn in resized())
+            // The receipt: for about a second after a copy, the box says so in its own corner. It
+            // replaces the button that used to sit at the panel's foot and read as "close".
+            if (copied)
+            {
+                g.setColour (config.accentB);
+                g.setFont (juce::FontOptions (kTextH));
+                g.drawText (juce::String::fromUTF8 ("copied \xe2\x9c\x93"),
+                            stampArea.reduced (kBoxPad, 4), juce::Justification::bottomRight, false);
+            }
         }
 
         juce::Font wordmarkFontAt (float h) const
@@ -626,12 +666,6 @@ private:
         void resized() override
         {
             auto r = getLocalBounds().reduced (14, 12);
-            {
-                auto footer = r.removeFromBottom (kFooterH);
-                const juce::Font cf { juce::FontOptions (kTextH) };
-                copyBtn.setBounds (footer.removeFromRight ((int) textWidth (cf, kCopyLabel) + 26));
-            }
-
             titleArea = r.removeFromTop (kTitleH);
             closeArea = getLocalBounds().reduced (8).removeFromTop (26).removeFromRight (26);
             closeBtn.setBounds (closeArea);
@@ -727,6 +761,9 @@ private:
                 if (download.isVisible()) download.setBounds (rowU);
                 else                      result  .setBounds (rowU);
             }
+            if (noticeText.isVisible())   // the foot of everything: the feed row sits above it
+                noticeText.setBounds (r.removeFromBottom (noticeH).withTrimmedTop (kNoticeGap));
+
             if (feed.isVisible())
             {
                 auto rowF = r.removeFromBottom (kFeedRowH);
@@ -740,7 +777,7 @@ private:
                 }
                 // A big print, centred in a cell wide enough for the halo it throws.
                 auto pawCell = rowF.removeFromLeft (kFeedRowH + 30);
-                pawArea = pawCell.withSizeKeepingCentre (kFeedRowH - 12, kFeedRowH - 12);
+                pawArea = pawCell.withSizeKeepingCentre (kPawD, kPawD);
                 pawBtn.setBounds (pawCell);   // the whole cell, halo included, is the click target
                 const juce::Font ff { juce::FontOptions (kFeedH, juce::Font::bold) };
                 feed.setBounds (rowF.withTrimmedLeft (16)
@@ -748,11 +785,28 @@ private:
             }
         }
 
-        // A click that landed on the stamp block (the links and buttons take their own first).
+        // A click that landed on the stamp block (the links and buttons take their own first). The
+        // RIGHT button offers the copy by name — a button at the panel's foot read as "close" at a
+        // glance, which is the one thing it must never be mistaken for.
         void mouseDown (const juce::MouseEvent& e) override
         {
-            if (stampArea.contains (e.getPosition()))
-                copyStamp();
+            if (! stampArea.contains (e.getPosition()))
+                return;
+
+            if (e.mods.isPopupMenu())
+            {
+                juce::PopupMenu m;
+                m.addItem (1, "Copy build stamp");
+                m.showMenuAsync (juce::PopupMenu::Options().withMousePosition(),
+                                 [safe = juce::Component::SafePointer<Panel> (this)] (int r)
+                                 {
+                                     if (r == 1 && safe != nullptr)
+                                         safe->copyStamp();
+                                 });
+                return;
+            }
+
+            copyStamp();
         }
 
         // The table is clickable, but a click target has to be VISIBLE to be found: the button says
@@ -761,8 +815,7 @@ private:
         {
             juce::SystemClipboard::copyTextToClipboard (stampText);
             copied = true;
-            copiedFrames = 27;   // ~1.1 s at 24 Hz, then back to the invitation
-            copyBtn.setButtonText (juce::String::fromUTF8 ("copied \xe2\x9c\x93"));
+            copiedFrames = 27;   // ~1.1 s at 24 Hz, then the receipt fades from the box
             repaint();
         }
 
@@ -772,7 +825,6 @@ private:
             if (copiedFrames > 0 && --copiedFrames == 0)
             {
                 copied = false;
-                copyBtn.setButtonText (kCopyLabel);
                 repaint();
             }
 
@@ -867,8 +919,13 @@ private:
         static constexpr float kBylineH = 19.0f;             // "by <maker>" belongs to the logo lockup
         static constexpr float kFeedH   = 18.0f;             // the tip jar speaks a size louder
         static constexpr int  kRowH     = 18;
-        static constexpr int  kFeedRowH = 46;                // the paw's row: the print is the biggest
-                                                             // thing in it, and its halo needs room
+        static constexpr int  kPawD     = 34;                // the print itself
+        static constexpr int  kFeedRowH = kPawD + 2 * (int) (kPawD * 0.55f) + 2;
+                                                             // the row is the print PLUS its halo: the
+                                                             // outer glow reaches 0.55 of the print
+                                                             // either way, and a glow that reaches
+                                                             // past its row shines under the blocks
+                                                             // above and below it
         static constexpr int  kTitleH   = 72;                // [product mark] <wordmark> [maker mark] by <maker>
         static constexpr int  kMinWidth = 560;               // the floor: a table that loses a column
                                                              // must not make the window jump narrower
@@ -877,11 +934,19 @@ private:
         static constexpr int  kCellPad  = 10;                // slack for the padding a link draws itself
         static constexpr int  kFeedGap  = 18;                // air between the update block and the cat —
                                                              // two different conversations
-        static constexpr int  kFooterH  = 18;                // the copy hint's row at the panel's foot
+        static constexpr int  kFooterH  = 18;                // the row the copy button used to hold —
+                                                             // kept as the height it gave back
+        static constexpr float kNoticeH = kTextH;            // the product's own small print — the SAME
+                                                             // size as the rest of the window: it is a
+                                                             // paragraph to be read, not a footnote
+        static constexpr int  kNoticeGap = kFeedGap;         // the same air the cat gets above it: the
+                                                             // print is a third conversation, not a
+                                                             // footnote hanging off the second
 
         float                 charW = 8.0f;                 // one monospaced advance (column arithmetic)
         juce::String          stampText;                    // what a click on the table puts on the clipboard
         juce::Rectangle<int>  stampArea;                    // the table's box — also the click target
+        int                   noticeH = 0;                  // measured in the ctor, spent in resized()
         bool                  copied = false;               // showing the receipt rather than the invitation
         int                   copiedFrames = 0;             // frames left on the receipt
         float                 phase = 0.0f;                 // the tip jar's glow
@@ -923,7 +988,7 @@ private:
         };
 
         TitleHit              productHit;
-        juce::Label           result, note, licence, env, feedPrompt;
+        juce::Label           result, note, licence, env, feedPrompt, noticeText;
         juce::HyperlinkButton link, download, feed, site;
 
         // A button with no face of its own: the paw print painted under it IS the face.
@@ -939,8 +1004,7 @@ private:
         bool                  isRelease = true;              // the running build IS a clean release tag
         juce::URL             feedUrl;                       // what the print opens (same as the words)
         juce::ToggleButton    autoCheck;
-        juce::TextButton      copyBtn;
-        static constexpr const char* kCopyLabel = "copy build stamp";
+
         juce::TextButton      check;
     };
 

@@ -201,12 +201,10 @@ int main()
         panel.copyStamp();
         ok (juce::SystemClipboard::getTextFromClipboard() == panel.stampText,
             "the copy affordance actually puts the table on the clipboard");
-        ok (panel.copied && panel.copyBtn.getButtonText() != "copy build stamp",
-            "...and says so on the button");
+        ok (panel.copied, "...and the box wears the receipt for a moment");
         panel.copiedFrames = 1;
         panel.timerCallback();
-        ok (! panel.copied && panel.copyBtn.getButtonText() == juce::String ("copy build stamp"),
-            "the receipt reverts to the invitation");
+        ok (! panel.copied, "the receipt fades on its own, leaving the table as it was");
         panel.showUpdate ("9.9.9", juce::URL ("https://example.invalid/rel"));
         ok (panel.download.isVisible() && ! panel.result.isVisible()
                 && panel.download.getButtonText().contains ("9.9.9")
@@ -339,6 +337,36 @@ int main()
             "a known wrapper signs as a third column, folded like the slug");
         ok (! brand::feedTheCatLink ("LooperCat", brand::feedTheCatUrl, "").toString (true).contains ("format="),
             "an unknown wrapper adds no empty column");
+    }
+
+    group ("VersionBadge notice: a product's own small print, and the window grows by it");
+    {
+        BadgeChecker c ("1.2.3");
+        auto plain = versionConfig ("v0.8.0");
+        VersionBadge quiet (c, plain, "Standalone");
+        VersionBadge::Panel without (quiet, plain, "Standalone", nullptr);
+
+        auto spoken = plain;
+        spoken.notice = "The names of manufacturers and products are used only for descriptive "
+                        "identification of the physical equipment from which the included models "
+                        "were captured.\n\nAll trademarks are property of their respective owners.";
+        VersionBadge loud (c, spoken, "Standalone");
+        VersionBadge::Panel with (loud, spoken, "Standalone", nullptr);
+
+        ok (without.noticeText.getParentComponent() == nullptr,
+            "no notice, no label — the window is the one every other product knows");
+        ok (with.noticeText.getParentComponent() == &with
+                && with.noticeText.getText().startsWith ("The names of manufacturers"),
+            "a product's small print is carried verbatim");
+        ok (with.getHeight() > without.getHeight() && with.getWidth() == without.getWidth(),
+            "the window grows by the paragraph, and only downwards");
+
+        with.resized();
+        ok (with.noticeText.getBottom() <= with.getHeight()
+                && with.noticeText.getY() >= with.feedArea.getBottom(),
+            "the print sits at the foot, under the cat");
+        ok (with.noticeText.getHeight() >= (int) VersionBadge::Panel::kNoticeH * 2,
+            "a paragraph that wraps gets the rows it needs, not one line and a clip");
     }
 
     group ("VersionBadge SafePointer paths no-op after the owner badge is gone");
