@@ -912,7 +912,9 @@ private:
         static constexpr float kNoticeH = kTextH;            // the product's own small print — the SAME
                                                              // size as the rest of the window: it is a
                                                              // paragraph to be read, not a footnote
-        static constexpr int  kNoticeGap = 12;               // air above it: it belongs to nobody's block
+        static constexpr int  kNoticeGap = kFeedGap;         // the same air the cat gets above it: the
+                                                             // print is a third conversation, not a
+                                                             // footnote hanging off the second
 
         float                 charW = 8.0f;                 // one monospaced advance (column arithmetic)
         juce::String          stampText;                    // what a click on the table puts on the clipboard
