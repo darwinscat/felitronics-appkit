@@ -23,10 +23,21 @@ namespace felitronics::appkit
 
 inline juce::CallOutBox& launchCallOut (juce::Component& anchor, std::unique_ptr<juce::Component> panel)
 {
-    if (auto* top = anchor.getTopLevelComponent())
-        return juce::CallOutBox::launchAsynchronously (std::move (panel),
-                                                       top->getLocalArea (&anchor, anchor.getLocalBounds()), top);
-    return juce::CallOutBox::launchAsynchronously (std::move (panel), anchor.getScreenBounds(), nullptr);
+    // The bubble (ground, edge and nose) is drawn by the box's OWN LookAndFeel, and a box parented to
+    // the top-level window inherits the WINDOW's — in a plugin that is the host's chrome, in a
+    // standalone JUCE's grey default. Neither is the product's. So the box takes the ANCHOR's look:
+    // whoever cast the popover decides how it is painted. The anchor's LookAndFeel must outlive the
+    // box (which dies with the top-level window) — a product one typically lives in the module, not
+    // in a component that can be rebuilt under an open popup.
+    auto& box = [&] () -> juce::CallOutBox&
+    {
+        if (auto* top = anchor.getTopLevelComponent())
+            return juce::CallOutBox::launchAsynchronously (std::move (panel),
+                                                           top->getLocalArea (&anchor, anchor.getLocalBounds()), top);
+        return juce::CallOutBox::launchAsynchronously (std::move (panel), anchor.getScreenBounds(), nullptr);
+    }();
+    box.setLookAndFeel (&anchor.getLookAndFeel());
+    return box;
 }
 
 } // namespace felitronics::appkit
