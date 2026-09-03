@@ -201,12 +201,10 @@ int main()
         panel.copyStamp();
         ok (juce::SystemClipboard::getTextFromClipboard() == panel.stampText,
             "the copy affordance actually puts the table on the clipboard");
-        ok (panel.copied && panel.copyBtn.getButtonText() != "copy build stamp",
-            "...and says so on the button");
+        ok (panel.copied, "...and the box wears the receipt for a moment");
         panel.copiedFrames = 1;
         panel.timerCallback();
-        ok (! panel.copied && panel.copyBtn.getButtonText() == juce::String ("copy build stamp"),
-            "the receipt reverts to the invitation");
+        ok (! panel.copied, "the receipt fades on its own, leaving the table as it was");
         panel.showUpdate ("9.9.9", juce::URL ("https://example.invalid/rel"));
         ok (panel.download.isVisible() && ! panel.result.isVisible()
                 && panel.download.getButtonText().contains ("9.9.9")

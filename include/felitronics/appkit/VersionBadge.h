@@ -497,13 +497,6 @@ private:
             closeBtn.setTooltip ("Close");
             addChildComponent (closeBtn);   // shown only when a host hands us an onClose
 
-            copyBtn.setButtonText (kCopyLabel);
-            copyBtn.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
-            copyBtn.setColour (juce::TextButton::buttonOnColourId, juce::Colours::transparentBlack);
-            copyBtn.setColour (juce::TextButton::textColourOffId, juce::Colour (0xff8a8a94));
-            copyBtn.setColour (juce::TextButton::textColourOnId,  config.accentB);
-            copyBtn.onClick = [this] { copyStamp(); };
-            addAndMakeVisible (copyBtn);
 
             if (config.notice.isNotEmpty())
             {
@@ -552,7 +545,7 @@ private:
                             + (int) std::ceil (ga.getBoundingBox (0, -1, true).getHeight() + nf.getHeight());
             }
 
-            setSize (width, 250 + kFeedGap + (int) rows.size() * kRowH + feedRows + noticeH);
+            setSize (width, 250 - kFooterH + kFeedGap + (int) rows.size() * kRowH + feedRows + noticeH);
         }
 
         struct Cells { juce::String version, state, commit, built; };
@@ -651,7 +644,15 @@ private:
                                 config.accentB.withMultipliedBrightness (0.86f + 0.14f * k));
             }
 
-            // (the copy affordance is a real button now — see copyBtn in resized())
+            // The receipt: for about a second after a copy, the box says so in its own corner. It
+            // replaces the button that used to sit at the panel's foot and read as "close".
+            if (copied)
+            {
+                g.setColour (config.accentB);
+                g.setFont (juce::FontOptions (kTextH));
+                g.drawText (juce::String::fromUTF8 ("copied \xe2\x9c\x93"),
+                            stampArea.reduced (kBoxPad, 4), juce::Justification::bottomRight, false);
+            }
         }
 
         juce::Font wordmarkFontAt (float h) const
@@ -665,12 +666,6 @@ private:
         void resized() override
         {
             auto r = getLocalBounds().reduced (14, 12);
-            {
-                auto footer = r.removeFromBottom (kFooterH);
-                const juce::Font cf { juce::FontOptions (kTextH) };
-                copyBtn.setBounds (footer.removeFromRight ((int) textWidth (cf, kCopyLabel) + 26));
-            }
-
             titleArea = r.removeFromTop (kTitleH);
             closeArea = getLocalBounds().reduced (8).removeFromTop (26).removeFromRight (26);
             closeBtn.setBounds (closeArea);
@@ -790,11 +785,28 @@ private:
             }
         }
 
-        // A click that landed on the stamp block (the links and buttons take their own first).
+        // A click that landed on the stamp block (the links and buttons take their own first). The
+        // RIGHT button offers the copy by name — a button at the panel's foot read as "close" at a
+        // glance, which is the one thing it must never be mistaken for.
         void mouseDown (const juce::MouseEvent& e) override
         {
-            if (stampArea.contains (e.getPosition()))
-                copyStamp();
+            if (! stampArea.contains (e.getPosition()))
+                return;
+
+            if (e.mods.isPopupMenu())
+            {
+                juce::PopupMenu m;
+                m.addItem (1, "Copy build stamp");
+                m.showMenuAsync (juce::PopupMenu::Options().withMousePosition(),
+                                 [safe = juce::Component::SafePointer<Panel> (this)] (int r)
+                                 {
+                                     if (r == 1 && safe != nullptr)
+                                         safe->copyStamp();
+                                 });
+                return;
+            }
+
+            copyStamp();
         }
 
         // The table is clickable, but a click target has to be VISIBLE to be found: the button says
@@ -803,8 +815,7 @@ private:
         {
             juce::SystemClipboard::copyTextToClipboard (stampText);
             copied = true;
-            copiedFrames = 27;   // ~1.1 s at 24 Hz, then back to the invitation
-            copyBtn.setButtonText (juce::String::fromUTF8 ("copied \xe2\x9c\x93"));
+            copiedFrames = 27;   // ~1.1 s at 24 Hz, then the receipt fades from the box
             repaint();
         }
 
@@ -814,7 +825,6 @@ private:
             if (copiedFrames > 0 && --copiedFrames == 0)
             {
                 copied = false;
-                copyBtn.setButtonText (kCopyLabel);
                 repaint();
             }
 
@@ -919,7 +929,8 @@ private:
         static constexpr int  kCellPad  = 10;                // slack for the padding a link draws itself
         static constexpr int  kFeedGap  = 18;                // air between the update block and the cat —
                                                              // two different conversations
-        static constexpr int  kFooterH  = 18;                // the copy hint's row at the panel's foot
+        static constexpr int  kFooterH  = 18;                // the row the copy button used to hold —
+                                                             // kept as the height it gave back
         static constexpr float kNoticeH = kTextH;            // the product's own small print — the SAME
                                                              // size as the rest of the window: it is a
                                                              // paragraph to be read, not a footnote
@@ -988,8 +999,7 @@ private:
         bool                  isRelease = true;              // the running build IS a clean release tag
         juce::URL             feedUrl;                       // what the print opens (same as the words)
         juce::ToggleButton    autoCheck;
-        juce::TextButton      copyBtn;
-        static constexpr const char* kCopyLabel = "copy build stamp";
+
         juce::TextButton      check;
     };
 
