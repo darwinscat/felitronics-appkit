@@ -103,6 +103,16 @@ public:
         juce::Colour accentB     { 0xffff8822 };   // the "new" dot; the update line + Download link
         juce::Colour text        { 0xffd8d8d8 };   // the popover wordmark
 
+        // The small print under the update button. It answers "what happens if I press this?" —
+        // where the request goes, and that nothing comes back to the maker. The word "opt-in" is not
+        // in it on purpose: a button and an unticked box already say that, in the only language a
+        // reader trusts. `updateNoteDetail` rides the tooltip of both the note and the switch, where
+        // the part that matters legally (a third party sees an IP) is one hover away.
+        juce::String updateNote = "Asks GitHub for the latest release. Nothing is sent to us.";
+        juce::String updateNoteDetail =
+            "The request goes to github.com, which sees your IP address and this product's name and "
+            "version. Nothing reaches the maker, and the versions are compared here on your machine.";
+
         // The "Feed the cat" block at the popover's foot: a quiet one-line prompt, then a paw
         // print + hyperlink opening the family tip jar. ON by default so every product inherits
         // it with an appkit bump; an empty feedUrl hides the whole block and the popup shrinks
@@ -165,6 +175,11 @@ public:
     // only, like every other entry point here. Defined below the class: the panel it builds is a
     // private nested type.
     void showPopup();
+
+    // The same window, presented as an ABOUT dialog: centred on the editor, on a dimmed ground, with
+    // a close cross — what a call-out stops being able to do once it carries a table. Click outside
+    // or press Escape to dismiss. The badge OWNS it, so it cannot outlive the thing that cast it.
+    void showAbout();
 
 private:
     // Rendered width of `s` in font `f` (dot position / hand layout in the popover).
@@ -340,9 +355,10 @@ private:
             info (licence, config.licence, ink);
             if (config.productUrl.isNotEmpty())
             {
-                // The address, spelled out: a window that names the product should say where it lives
-                // rather than hide it behind a byline. Scheme and trailing slash are noise on a line.
-                juce::String shown = config.productUrl.fromFirstOccurrenceOf ("//", false, false);
+                // The address, spelled out WITH its scheme: "darwinscat.com/tabbyeq" is a phrase,
+                // "https://darwinscat.com/tabbyeq" is visibly a link, and a window full of monospaced
+                // rows gives a reader no other clue which of them can be clicked.
+                juce::String shown = config.productUrl;
                 if (shown.endsWith ("/")) shown = shown.dropLastCharacters (1);
                 ghLink (site, shown, config.productUrl);
             }
@@ -412,7 +428,22 @@ private:
                 feed.setTooltip (feedLink.toString (true));
                 feed.changeWidthToFitText();
                 addAndMakeVisible (feed);
+
+                // The print is a click target too — it is the biggest, warmest thing in the window,
+                // and everything that looks pressable should be. NOT a HyperlinkButton: that one
+                // hit-tests against the rectangle of its own TEXT, so a textless one catches nothing.
+                // This paints nothing at all; the paw drawn underneath is the button's face.
+                feedUrl = feedLink;
+                pawBtn.onClick = [this] { feedUrl.launchInDefaultBrowser(); };
+                pawBtn.setTooltip (feedLink.toString (true));
+                pawBtn.setMouseCursor (juce::MouseCursor::PointingHandCursor);
+                addAndMakeVisible (pawBtn);
             }
+
+            closeBtn.onClick = [this] { if (onClose) onClose(); };
+            closeBtn.setMouseCursor (juce::MouseCursor::PointingHandCursor);
+            closeBtn.setTooltip ("Close");
+            addChildComponent (closeBtn);   // shown only when a host hands us an onClose
 
             copyBtn.setButtonText (kCopyLabel);
             copyBtn.setColour (juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
@@ -422,7 +453,9 @@ private:
             copyBtn.onClick = [this] { copyStamp(); };
             addAndMakeVisible (copyBtn);
 
-            note.setText ("Opt-in. Sends only product + version.", juce::dontSendNotification);
+            note.setText (config.updateNote, juce::dontSendNotification);
+            note.setTooltip (config.updateNoteDetail);
+            autoCheck.setTooltip (config.updateNoteDetail);
             note.setFont (juce::FontOptions (kTextH));
             note.setColour (juce::Label::textColourId, juce::Colour (0xff60606a));
             addAndMakeVisible (note);
@@ -438,8 +471,7 @@ private:
             // The TABLE sets the width: it is the widest thing in the window, and a grid that has to
             // wrap is not a grid. kMinWidth keeps the chrome from collapsing when the table is tiny.
             setSize (juce::jmax (kMinWidth, 28 + 2 * kBoxPad + tableW),
-                     250 + kFeedGap + (config.productUrl.isNotEmpty() ? kRowH : 0)
-                         + (int) rows.size() * kRowH + feedRows);
+                     250 + kFeedGap + (int) rows.size() * kRowH + feedRows);
         }
 
         struct Cells { juce::String version, state, commit, built; };
@@ -490,6 +522,14 @@ private:
             if (! catArea.isEmpty() && config.drawByline != nullptr)
                 config.drawByline (g, catArea.toFloat().getCentreX(), cy, d);
 
+            if (closeBtn.isVisible())   // the dialog's close cross, top-right
+            {
+                const auto c = closeArea.toFloat().reduced ((float) closeArea.getWidth() * 0.3f);
+                g.setColour (config.text.withAlpha (closeBtn.isMouseOver() ? 1.0f : 0.55f));
+                g.drawLine (c.getX(), c.getY(), c.getRight(), c.getBottom(), 1.6f);
+                g.drawLine (c.getX(), c.getBottom(), c.getRight(), c.getY(), 1.6f);
+            }
+
             // The table reads as a table — and the box IS the click target that copies it.
             const auto box = stampArea.toFloat();
             g.setColour (juce::Colours::black.withAlpha (0.22f));
@@ -508,7 +548,8 @@ private:
             {
                 // The tip jar breathes — a valve warming, not a notification blinking: the halo and
                 // the print ride the same slow sine, and neither ever goes dark.
-                const float k = glow();
+                // The pointer over the print lifts the glow: the paw answers before it is clicked.
+                const float k = juce::jmin (1.0f, glow() + (pawBtn.isMouseOver() ? 0.45f : 0.0f));
                 const auto  p = pawArea.toFloat();
                 g.setColour (config.accentB.withAlpha (0.06f + 0.10f * k));
                 g.fillEllipse (p.expanded (p.getHeight() * 0.55f));
@@ -539,6 +580,8 @@ private:
             }
 
             titleArea = r.removeFromTop (kTitleH);
+            closeArea = getLocalBounds().reduced (8).removeFromTop (26).removeFromRight (26);
+            closeBtn.setBounds (closeArea);
             {
                 // The lockup is TWO halves: [product mark] name | [maker mark] by <maker>. Each name
                 // is fitted to its own half, and then BOTH take the smaller of the two sizes — one
@@ -592,10 +635,15 @@ private:
             stampArea = juce::Rectangle<int> (8, stampTop, getWidth() - 16, r.getY() - stampTop);
 
             r.removeFromTop (6);
-            licence.setBounds (r.removeFromTop (kRowH));
-            env.setBounds     (r.removeFromTop (kRowH));
-            if (site.getParentComponent() != nullptr)
-                site.setBounds (r.removeFromTop (kRowH));
+            {
+                // Licence left, address right: one row, both of them things a reader looks up rather
+                // than reads.
+                auto rowL = r.removeFromTop (kRowH);
+                if (site.getParentComponent() != nullptr)
+                    site.setBounds (rowL.removeFromRight (site.getWidth()));
+                licence.setBounds (rowL);
+            }
+            env.setBounds (r.removeFromTop (kRowH));
 
             r.removeFromTop (8);
             {
@@ -628,9 +676,12 @@ private:
                 if (feedPrompt.isVisible())
                 {
                     const juce::Font pf { juce::FontOptions (kFeedH) };
-                    feedPrompt.setBounds (rowF.removeFromLeft ((int) textWidth (pf, feedPrompt.getText()) + 22));
+                    feedPrompt.setBounds (rowF.removeFromLeft ((int) textWidth (pf, feedPrompt.getText()) + 16));
                 }
-                pawArea = rowF.removeFromLeft (kFeedRowH + 10).reduced (7);
+                // A big print, centred in a cell wide enough for the halo it throws.
+                auto pawCell = rowF.removeFromLeft (kFeedRowH + 30);
+                pawArea = pawCell.withSizeKeepingCentre (kFeedRowH - 12, kFeedRowH - 12);
+                pawBtn.setBounds (pawCell);   // the whole cell, halo included, is the click target
                 const juce::Font ff { juce::FontOptions (kFeedH, juce::Font::bold) };
                 feed.setBounds (rowF.withTrimmedLeft (16)
                                     .removeFromLeft ((int) textWidth (ff, feed.getButtonText()) + kCellPad));
@@ -752,9 +803,11 @@ private:
         static constexpr float kBylineH = 19.0f;             // "by <maker>" belongs to the logo lockup
         static constexpr float kFeedH   = 18.0f;             // the tip jar speaks a size louder
         static constexpr int  kRowH     = 18;
-        static constexpr int  kFeedRowH = 30;                // the paw's row, with air around it
+        static constexpr int  kFeedRowH = 46;                // the paw's row: the print is the biggest
+                                                             // thing in it, and its halo needs room
         static constexpr int  kTitleH   = 72;                // [product mark] <wordmark> [maker mark] by <maker>
-        static constexpr int  kMinWidth = 420;               // the chrome's floor; the table usually wins
+        static constexpr int  kMinWidth = 560;               // the floor: a table that loses a column
+                                                             // must not make the window jump narrower
         static constexpr int  kCols     = 5;                 // component | version | state | commit | built
         static constexpr int  kBoxPad   = 10;                // the table box's inner margin
         static constexpr int  kCellPad  = 10;                // slack for the padding a link draws itself
@@ -787,16 +840,69 @@ private:
 
         juce::Label           result, note, licence, env, feedPrompt;
         juce::HyperlinkButton link, download, feed, site;
+
+        // A button with no face of its own: the paw print painted under it IS the face.
+        struct BareButton final : public juce::Button
+        {
+            BareButton() : juce::Button ({}) {}
+            void paintButton (juce::Graphics&, bool, bool) override {}
+        };
+        BareButton            pawBtn, closeBtn;
+        juce::Rectangle<int>  closeArea;                     // where paint() draws the close cross
+        std::function<void()> onClose;                       // set by the About host; hidden without it
+        juce::URL             feedUrl;                       // what the print opens (same as the words)
         juce::ToggleButton    autoCheck;
         juce::TextButton      copyBtn;
         static constexpr const char* kCopyLabel = "copy build stamp";
         juce::TextButton      check;
     };
 
+    // The dimmed ground the About dialog sits on: it follows the window it covers, swallows the
+    // clicks that miss the panel, and takes Escape.
+    struct AboutOverlay final : public juce::Component,
+                                private juce::ComponentListener
+    {
+        AboutOverlay (std::unique_ptr<Panel> p, juce::Component& host)
+            : panel (std::move (p)), covered (host)
+        {
+            addAndMakeVisible (*panel);
+            setWantsKeyboardFocus (true);
+            setBounds (covered.getLocalBounds());
+            covered.addComponentListener (this);
+        }
+
+        ~AboutOverlay() override { covered.removeComponentListener (this); }
+
+        void paint (juce::Graphics& g) override { g.fillAll (juce::Colours::black.withAlpha (0.55f)); }
+
+        void resized() override
+        {
+            panel->setBounds (getLocalBounds().withSizeKeepingCentre (panel->getWidth(), panel->getHeight()));
+        }
+
+        // A click that reaches the ground missed the panel — that is a dismissal everywhere else.
+        void mouseDown (const juce::MouseEvent&) override { if (onDismiss) onDismiss(); }
+
+        bool keyPressed (const juce::KeyPress& key) override
+        {
+            if (key != juce::KeyPress::escapeKey)
+                return false;
+            if (onDismiss) onDismiss();
+            return true;
+        }
+
+        void componentMovedOrResized (juce::Component& c, bool, bool) override { setBounds (c.getLocalBounds()); }
+
+        std::unique_ptr<Panel> panel;
+        juce::Component&       covered;
+        std::function<void()>  onDismiss;
+    };
+
     UpdateChecker&      checker;
     Config              config;
     juce::String        format;          // running plugin format (VST3 / AU / CLAP / Standalone)
     juce::Typeface::Ptr brandTypeface;   // brand face for the popover title (set by the editor)
+    std::unique_ptr<AboutOverlay> about;  // the open About dialog, owned here
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VersionBadge)
 };
@@ -804,6 +910,38 @@ private:
 inline void VersionBadge::showPopup()
 {
     launchCallOut (*this, std::make_unique<Panel> (*this, config, format, brandTypeface));
+}
+
+inline void VersionBadge::showAbout()
+{
+    auto* top = getTopLevelComponent();
+    if (top == nullptr || top == this)
+    {
+        showPopup();          // nothing to centre on — fall back to the call-out
+        return;
+    }
+
+    auto panel = std::make_unique<Panel> (*this, config, format, brandTypeface);
+    auto* raw  = panel.get();
+    about = std::make_unique<AboutOverlay> (std::move (panel), *top);
+
+    // Dismissal is deferred: it is reached from inside the very components being destroyed.
+    auto dismiss = [safe = juce::Component::SafePointer<VersionBadge> (this)]
+    {
+        juce::MessageManager::callAsync ([safe]
+        {
+            if (auto* b = safe.getComponent())
+                b->about.reset();
+        });
+    };
+    raw->onClose      = dismiss;
+    raw->closeBtn.setVisible (true);
+    about->onDismiss  = dismiss;
+    about->setLookAndFeel (&getLookAndFeel());   // the dialog is painted by whoever cast it
+
+    top->addAndMakeVisible (*about);
+    about->toFront (true);
+    about->grabKeyboardFocus();
 }
 
 } // namespace felitronics::appkit

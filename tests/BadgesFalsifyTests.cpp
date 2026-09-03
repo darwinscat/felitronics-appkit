@@ -153,6 +153,11 @@ int main()
         ok (panel.rows[0]->lead.getText() == "Badge Gate" && panel.rows[3]->lead.getText() == "JUCE",
             "a cell holds its own text — the columns do the aligning, not padding");
         ok (panel.licence.getText() == "AGPL-3.0-or-later", "the licence has its own row under the table");
+        ok (panel.note.getText().contains ("GitHub") && panel.note.getText().contains ("Nothing is sent to us")
+                && ! panel.note.getText().containsIgnoreCase ("opt-in"),
+            "the small print says where the request goes and what comes back, not jargon");
+        ok (panel.note.getTooltip().contains ("IP address") && panel.autoCheck.getTooltip() == panel.note.getTooltip(),
+            "the part a lawyer cares about is one hover away, on the note and on the switch");
         ok (panel.env.getText().contains ("Standalone") && panel.env.getText().contains ("arm64")
                 && panel.env.getText().contains ("gate"),
             "the environment row carries format, machine and builder");
@@ -200,7 +205,8 @@ int main()
             "a version cell is wide enough for the link that draws in it");
         ok (panel.feed.getWidth() > (int) VersionBadge::Panel::kFeedH * 3,
             "the tip jar's words get a width, not the zero a HyperlinkButton is born with");
-        ok (panel.getWidth() > VersionBadge::Panel::kMinWidth, "the table sets the panel's width");
+        ok (panel.getWidth() >= VersionBadge::Panel::kMinWidth,
+            "the window never gets narrower than its floor, whatever the table holds");
     }
 
     group ("VersionBadge panel sizing follows the table it carries");
@@ -236,6 +242,12 @@ int main()
             "feed link opens the canonical hop, signed with the product slug");
         panel.resized();
         ok (! panel.pawArea.isEmpty(), "a visible feed row lays out a paw to draw");
+        bool pawClicks = false, pawChildClicks = false;
+        panel.pawBtn.getInterceptsMouseClicks (pawClicks, pawChildClicks);
+        ok (panel.feedUrl == panel.feed.getURL() && panel.pawBtn.isVisible() && pawClicks,
+            "the print is a click target of its own, opening what the words open");
+        ok (panel.pawBtn.getBounds().contains (panel.pawArea),
+            "...and its target covers the print and the halo around it");
         ok (panel.note.getY() - panel.check.getBottom() <= 2,
             "the telemetry note hugs the update button it describes");
         ok (panel.note.getBottom() <= panel.feedPrompt.getY(),
