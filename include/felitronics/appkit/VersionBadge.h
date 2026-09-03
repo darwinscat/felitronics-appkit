@@ -909,7 +909,9 @@ private:
         static constexpr int  kFeedGap  = 18;                // air between the update block and the cat —
                                                              // two different conversations
         static constexpr int  kFooterH  = 18;                // the copy hint's row at the panel's foot
-        static constexpr float kNoticeH = 11.0f;             // the product's own small print, at the foot
+        static constexpr float kNoticeH = kTextH;            // the product's own small print — the SAME
+                                                             // size as the rest of the window: it is a
+                                                             // paragraph to be read, not a footnote
         static constexpr int  kNoticeGap = 12;               // air above it: it belongs to nobody's block
 
         float                 charW = 8.0f;                 // one monospaced advance (column arithmetic)
