@@ -136,13 +136,18 @@ int main()
         ok (panel.rows.size() == 4, "the product leads, then the legacy core, then the listed deps");
         ok (panel.rows[0]->lead.getText().startsWith ("Badge Gate"), "row 0 is the product itself");
         ok (panel.rows[0]->state.getText() == "dirty"
-                && panel.rows[0]->commit.getText() == "gdeadbee"
+                && panel.rows[0]->commitLink.getButtonText() == "gdeadbee"
                 && panel.rows[0]->built.getText() == "2026-07-12 00:00:00",
             "the product's state, commit and build clock live in their own columns");
+        ok (panel.rows[0]->commitLink.getURL().toString (false).endsWith ("/commit/deadbee")
+                && panel.rows[0]->commit.getText().isEmpty(),
+            "a row with a slug links its hash to that commit, and leaves the plain cell empty");
         ok (! panel.rows[0]->link.getButtonText().contains ("dirty"), "...and never in its version cell");
         ok (panel.rows[1]->state.getText() == "local", "a sibling dependency says so in the state column");
-        ok (panel.rows[3]->state.getText() == "pin" && panel.rows[3]->commit.getText() == "gfeedface",
-            "a dependency may state its commit and origin outright, where the version string cannot");
+        ok (panel.rows[3]->state.getText() == "pin" && panel.rows[3]->commit.getText() == "gfeedface"
+                && panel.rows[3]->commitLink.getParentComponent() == nullptr,
+            "a dependency may state its commit and origin outright, where the version string cannot"
+            " — and without a slug the hash stays plain text, like the version beside it");
         ok (panel.rows[3]->built.getText().isEmpty(), "a row with nothing to say in a column leaves it empty");
         ok (panel.rows[2]->link.getButtonText() == "v0.11.4"
                 && panel.rows[2]->link.getURL().toString (false).endsWith ("/releases/tag/v0.11.4"),
