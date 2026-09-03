@@ -153,6 +153,10 @@ int main()
         ok (panel.rows[0]->lead.getText() == "Badge Gate" && panel.rows[3]->lead.getText() == "JUCE",
             "a cell holds its own text — the columns do the aligning, not padding");
         ok (panel.licence.getText() == "AGPL-3.0-or-later", "the licence has its own row under the table");
+        ok (panel.site.getWidth() > (int) VersionBadge::Panel::kTextH * 4
+                && panel.site.getRight() <= panel.getWidth()
+                && panel.site.getButtonText().startsWith ("https://"),
+            "the address is laid out on the licence row, with its scheme, and not at zero width");
         ok (panel.note.getText().contains ("GitHub") && panel.note.getText().contains ("Nothing is sent to us")
                 && ! panel.note.getText().containsIgnoreCase ("opt-in"),
             "the small print says where the request goes and what comes back, not jargon");
@@ -194,6 +198,15 @@ int main()
                 && panel.download.getButtonText().contains ("9.9.9")
                 && panel.download.getButtonText().contains ("Download"),
             "an available update turns the whole verdict into the link");
+        ok (panel.download.getButtonText().contains ("Update available"),
+            "a release build is told an update is available");
+
+        BadgeChecker dev ("v0.1.0-7-gdeadbee");            // a working-tree build, not a release
+        VersionBadge devBadge (dev, cfg, "Standalone");
+        VersionBadge::Panel devPanel (devBadge, cfg, "Standalone", nullptr);
+        devPanel.showUpdate ("0.1.0", juce::URL ("https://example.invalid/rel"));
+        ok (! devPanel.isRelease && devPanel.download.getButtonText().startsWith ("Latest release"),
+            "a working-tree build is told a release EXISTS, not that its own version updates itself");
         ok (panel.download.getWidth() > panel.getWidth() / 2,
             "...and that link spans the row, not a word at its end");
 

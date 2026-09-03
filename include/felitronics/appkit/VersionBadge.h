@@ -102,6 +102,10 @@ public:
         juce::Colour accentHover { 0xff9778ff };   // version when outdated; hyperlink text
         juce::Colour accentB     { 0xffff8822 };   // the "new" dot; the update line + Download link
         juce::Colour text        { 0xffd8d8d8 };   // the popover wordmark
+        // The dialog's own ground. As a call-out the panel needs none (the bubble is painted by the
+        // LookAndFeel under it); as an About window it is the only thing between the reader and the
+        // editor, so it paints itself, opaque.
+        juce::Colour ground      { 0xff1a1e24 };
 
         // The small print under the update button. It answers "what happens if I press this?" —
         // where the request goes, and that nothing comes back to the maker. The word "opt-in" is not
@@ -264,6 +268,7 @@ private:
                 if (i == 0)   // the product knows its own hash, dirt and build clock exactly
                 {
                     c.version = releaseTagForCurrentVersion (chk.currentVersion());   // the tag it links to
+                    isRelease = c.version == displayVersionTag (chk.currentVersion());
                     if (config.gitDirty)              c.state  = "dirty";
                     if (config.gitHash.isNotEmpty())  c.commit = "g" + config.gitHash;
                     c.built = prettyBuildStamp (config.buildNumber);
@@ -506,6 +511,15 @@ private:
 
         void paint (juce::Graphics& g) override
         {
+            if (asDialog)   // a window, not a card hanging off a button: it owns its ground
+            {
+                const auto b = getLocalBounds().toFloat().reduced (1.0f);
+                g.setColour (config.ground);
+                g.fillRoundedRectangle (b, 8.0f);
+                g.setColour (config.accent.withAlpha (0.35f));
+                g.drawRoundedRectangle (b, 8.0f, 1.0f);
+            }
+
             // The title: the product's mark, its wordmark, then the maker's mark — SAME size, so
             // neither reads as a footnote to the other — and the byline link beside it.
             const float d  = (float) markArea.getHeight();
@@ -640,7 +654,10 @@ private:
                 // than reads.
                 auto rowL = r.removeFromTop (kRowH);
                 if (site.getParentComponent() != nullptr)
-                    site.setBounds (rowL.removeFromRight (site.getWidth()));
+                {
+                    const juce::Font sf { juce::FontOptions (kTextH).withName (juce::Font::getDefaultMonospacedFontName()) };
+                    site.setBounds (rowL.removeFromRight ((int) textWidth (sf, site.getButtonText()) + kCellPad));
+                }
                 licence.setBounds (rowL);
             }
             env.setBounds (r.removeFromTop (kRowH));
@@ -783,8 +800,12 @@ private:
 
         void showUpdate (const juce::String& latest, const juce::URL& url)
         {
+            // A build that is not a clean release counts as older than every release (the dev rule in
+            // UpdateCompare), so a working-tree build is ALWAYS "outdated" — and telling its owner
+            // that v0.6.0 updates their v0.6.0 reads as a bug. Same fact, honest wording.
             result.setVisible (false);
-            download.setButtonText (juce::String::fromUTF8 ("\xe2\x86\x91 Update available: v") + latest
+            download.setButtonText ((isRelease ? juce::String::fromUTF8 ("\xe2\x86\x91 Update available: v")
+                                               : juce::String ("Latest release: v")) + latest
                                     + juce::String::fromUTF8 ("  \xe2\x80\x94  Download"));
             download.setURL (url);
             download.setVisible (true);
@@ -850,6 +871,8 @@ private:
         BareButton            pawBtn, closeBtn;
         juce::Rectangle<int>  closeArea;                     // where paint() draws the close cross
         std::function<void()> onClose;                       // set by the About host; hidden without it
+        bool                  asDialog = false;              // paints its own ground when true
+        bool                  isRelease = true;              // the running build IS a clean release tag
         juce::URL             feedUrl;                       // what the print opens (same as the words)
         juce::ToggleButton    autoCheck;
         juce::TextButton      copyBtn;
@@ -873,7 +896,10 @@ private:
 
         ~AboutOverlay() override { covered.removeComponentListener (this); }
 
-        void paint (juce::Graphics& g) override { g.fillAll (juce::Colours::black.withAlpha (0.55f)); }
+        // A LIGHT scrim: enough to push the editor back a step and say "this is the thing you are
+        // looking at", not enough to black it out. The dialog itself is opaque, so this only softens
+        // what is behind it.
+        void paint (juce::Graphics& g) override { g.fillAll (juce::Colours::black.withAlpha (0.22f)); }
 
         void resized() override
         {
@@ -935,6 +961,7 @@ inline void VersionBadge::showAbout()
         });
     };
     raw->onClose      = dismiss;
+    raw->asDialog     = true;
     raw->closeBtn.setVisible (true);
     about->onDismiss  = dismiss;
     about->setLookAndFeel (&getLookAndFeel());   // the dialog is painted by whoever cast it
