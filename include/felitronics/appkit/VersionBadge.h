@@ -777,7 +777,7 @@ private:
                 }
                 // A big print, centred in a cell wide enough for the halo it throws.
                 auto pawCell = rowF.removeFromLeft (kFeedRowH + 30);
-                pawArea = pawCell.withSizeKeepingCentre (kFeedRowH - 12, kFeedRowH - 12);
+                pawArea = pawCell.withSizeKeepingCentre (kPawD, kPawD);
                 pawBtn.setBounds (pawCell);   // the whole cell, halo included, is the click target
                 const juce::Font ff { juce::FontOptions (kFeedH, juce::Font::bold) };
                 feed.setBounds (rowF.withTrimmedLeft (16)
@@ -919,8 +919,13 @@ private:
         static constexpr float kBylineH = 19.0f;             // "by <maker>" belongs to the logo lockup
         static constexpr float kFeedH   = 18.0f;             // the tip jar speaks a size louder
         static constexpr int  kRowH     = 18;
-        static constexpr int  kFeedRowH = 46;                // the paw's row: the print is the biggest
-                                                             // thing in it, and its halo needs room
+        static constexpr int  kPawD     = 34;                // the print itself
+        static constexpr int  kFeedRowH = kPawD + 2 * (int) (kPawD * 0.55f) + 2;
+                                                             // the row is the print PLUS its halo: the
+                                                             // outer glow reaches 0.55 of the print
+                                                             // either way, and a glow that reaches
+                                                             // past its row shines under the blocks
+                                                             // above and below it
         static constexpr int  kTitleH   = 72;                // [product mark] <wordmark> [maker mark] by <maker>
         static constexpr int  kMinWidth = 560;               // the floor: a table that loses a column
                                                              // must not make the window jump narrower
