@@ -27,8 +27,14 @@ Header-only. The CMake target adds an include path and nothing else — **the co
 | `felitronics/appkit/PerfBadge.h` | `juce_gui_basics` | The clickable "latency · CPU%" badge + live per-stage DSP-load popover; the product's stage rows (label + colour) are `Config` data, stats pushed as snapshots. |
 | `felitronics/appkit/WebpImage.h` | `juce_graphics` + `felitronics::appkit_webp` (CMake `FELITRONICS_APPKIT_WEBP=ON`, fetches libwebp) | `juce::Image` ↔ WebP for the one picture a device pack ships: lossy colour at a chosen quality, the alpha plane lossless, premultiply/unpremultiply handled — a cut-out's edge survives the trip. |
 
-Brand *assets* (Michroma font + OFL license, `catlogo.svg`) live in [`assets/`](assets/) — embed them
-from your app's CMake: `juce_add_binary_data(MyAssets SOURCES ${felitronics_appkit_SOURCE_DIR}/assets/Michroma-Regular.ttf …)`
+The brand itself — the Darwin's Cat mark and the Michroma wordmark face — is **compiled in**
+(`felitronics/appkit/BrandAssets.h`: `brand::drawCat`, `brand::wordmarkTypeface`), so a window opened
+by any consumer wears it without that consumer doing anything. The embedded face is a subset (ASCII
+plus a handful of marks); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the OFL terms and
+the command that regenerates it.
+
+The full originals still live in [`assets/`](assets/) for a product that wants the whole face in its
+own binary: `juce_add_binary_data(MyAssets SOURCES ${felitronics_appkit_SOURCE_DIR}/assets/Michroma-Regular.ttf …)`
 (`felitronics_appkit_SOURCE_DIR` is set by `FetchContent_MakeAvailable`).
 
 Consumers subclass `UpdateChecker` as a thin adapter that bakes in their `Config` (repo slug,

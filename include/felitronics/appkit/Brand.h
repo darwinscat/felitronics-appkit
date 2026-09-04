@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <felitronics/appkit/BrandAssets.h>   // the mark and the wordmark face, carried by the library itself
+
 //==============================================================================
 // felitronics::appkit::brand — the Darwin's Cat visual identity, consolidated from the diverged
 // per-product copies (orbitcab ui/BrandMark.h, orbit-capture ui/UiSupport.h): the palette, the

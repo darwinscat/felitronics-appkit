@@ -295,6 +295,24 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
     endif()
     add_test(NAME appkit_badges_falsify_tests COMMAND appkit_badges_falsify_tests)
 
+    # The compiled-in identity: the mark parses and inks, the subset face decodes and still has the
+    # glyphs the family sets in it. Silent fallbacks are the failure mode this catches.
+    add_executable(appkit_brand_assets_tests tests/BrandAssetsFalsifyTests.cpp)
+    target_link_libraries(appkit_brand_assets_tests PRIVATE
+        felitronics::appkit
+        juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_brand_assets_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_brand_assets_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_brand_assets_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_brand_assets_tests COMMAND appkit_brand_assets_tests)
+
     add_executable(appkit_brand_falsify_tests tests/BrandFalsifyTests.cpp)
     target_link_libraries(appkit_brand_falsify_tests PRIVATE
         felitronics::appkit

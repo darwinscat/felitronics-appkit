@@ -477,7 +477,6 @@ private:
                 feed.setURL (feedLink);
                 feed.setFont (juce::FontOptions (kFeedH, juce::Font::bold), false, juce::Justification::centredLeft);
                 feed.setColour (juce::HyperlinkButton::textColourId, config.accentB);
-                feed.setTooltip (feedLink.toString (true));
                 feed.changeWidthToFitText();
                 addAndMakeVisible (feed);
 
@@ -487,7 +486,6 @@ private:
                 // This paints nothing at all; the paw drawn underneath is the button's face.
                 feedUrl = feedLink;
                 pawBtn.onClick = [this] { feedUrl.launchInDefaultBrowser(); };
-                pawBtn.setTooltip (feedLink.toString (true));
                 pawBtn.setMouseCursor (juce::MouseCursor::PointingHandCursor);
                 addAndMakeVisible (pawBtn);
             }
@@ -546,6 +544,70 @@ private:
             }
 
             setSize (width, 250 - kFooterH + kFeedGap + (int) rows.size() * kRowH + feedRows + noticeH);
+
+            // Where a link goes is the panel's business to say. A HyperlinkButton hands its URL to
+            // the host's TooltipWindow, which lives in a different layer: in an About window it
+            // either never appears (nothing in that window hosts tooltips) or appears BEHIND the
+            // panel with a corner poking out past its edge. So every link here reports to the panel
+            // instead, and the panel draws the address over its own face — see paintOverChildren.
+            for (auto* child : getChildren())
+                if (auto* hl = dynamic_cast<juce::HyperlinkButton*> (child))
+                    watchLink (*hl);
+
+            watchLink (productHit);
+            if (config.feedUrl.isNotEmpty())
+                watchLink (pawBtn);
+        }
+
+        // Take the link off the host's tooltip and put it on ours. The URL is read back at HOVER
+        // time, never cached: the Download link only learns its address when a check finds a release.
+        void watchLink (juce::Component& c)
+        {
+            if (auto* tip = dynamic_cast<juce::SettableTooltipClient*> (&c))
+                tip->setTooltip ({});
+            c.addMouseListener (this, false);
+        }
+
+        juce::String urlUnder (juce::Component* c) const
+        {
+            if (auto* hl = dynamic_cast<juce::HyperlinkButton*> (c)) return hl->getURL().toString (true);
+            if (c == &productHit)                                    return productHit.url.toString (true);
+            if (c == &pawBtn)                                        return feedUrl.toString (true);
+            return {};
+        }
+
+        void mouseEnter (const juce::MouseEvent& e) override
+        {
+            if (const auto url = urlUnder (e.eventComponent); url != hoverUrl)
+            {
+                hoverUrl    = url;
+                hoverSource = e.eventComponent;
+                hoverPos    = e.getEventRelativeTo (this).getPosition();
+                repaint();
+            }
+        }
+
+        // The readout rides the CURSOR, so it sits the same way over every link. (It used to hang off
+        // the link's own box, and the title row's two halves have different heights — the product
+        // half starts at the panel's top edge, so its readout flipped below while the byline's
+        // stayed above. Same gesture, two answers.)
+        void mouseMove (const juce::MouseEvent& e) override
+        {
+            if (hoverUrl.isNotEmpty())
+            {
+                hoverPos = e.getEventRelativeTo (this).getPosition();
+                repaint();
+            }
+        }
+
+        void mouseExit (const juce::MouseEvent& e) override
+        {
+            if (e.eventComponent == hoverSource)
+            {
+                hoverUrl    = {};
+                hoverSource = nullptr;
+                repaint();
+            }
         }
 
         struct Cells { juce::String version, state, commit, built; };
@@ -604,8 +666,14 @@ private:
             g.drawSingleLineText (config.productName, wordmarkX,
                                   juce::roundToInt (cy + (wf.getAscent() - wf.getDescent()) * 0.5f));
 
-            if (! catArea.isEmpty() && config.drawByline != nullptr)
-                config.drawByline (g, catArea.toFloat().getCentreX(), cy, d);
+            if (! catArea.isEmpty())
+            {
+                if (config.drawByline != nullptr)
+                    config.drawByline (g, catArea.toFloat().getCentreX(), cy, d);
+                else
+                    brand::drawCat (g, juce::Rectangle<float> (catArea.toFloat().getCentreX() - d * 0.5f,
+                                                               cy - d * 0.5f, d, d), 0.94f);
+            }
 
             if (closeBtn.isVisible())   // the dialog's close cross, top-right
             {
@@ -655,11 +723,54 @@ private:
             }
         }
 
+        // The product may hand us its own copy of the face (an editor that already loaded it for its
+        // header), but the library carries the family's: a window that says "by Darwin's Cat" must
+        // say it in the family's letters wherever it opens, not in whatever the host's system font is.
+        // The address of whatever the cursor is on, drawn OVER the window's own face — a tooltip that
+        // belongs to this panel instead of to the host. It hangs off the LINK, the way a tooltip
+        // should (a readout parked in a corner makes the reader hunt for which of six links it is
+        // about), it is clamped inside the panel so it can never poke out past the window's edge,
+        // and it is translucent on purpose: it is a hint about something else, not a thing in its
+        // own right, and what it covers should still read through it.
+        void paintOverChildren (juce::Graphics& g) override
+        {
+            if (hoverUrl.isEmpty())
+                return;
+
+            constexpr int kPillH = 17, kMargin = 8, kGap = 4;
+
+            const juce::Font f { juce::FontOptions (kNoticeH) };
+            const int width = juce::jmin (getWidth() - 2 * kMargin, (int) textWidth (f, hoverUrl) + 16);
+            if (width < 40)
+                return;                       // no room to say it at all — better nothing than a stub
+
+            // ABOVE the cursor — where the hand does not cover it, and where every status hint a
+            // reader has ever seen sits — dropping below only when the panel's top edge is closer
+            // than the pill is tall. Clamped inside the panel, so it can never poke out past the
+            // window's edge the way a host tooltip does.
+            const bool above = hoverPos.y - kGap - kPillH >= kMargin;
+            const int  y     = above ? hoverPos.y - kGap - kPillH
+                                     : juce::jmin (getHeight() - kMargin - kPillH, hoverPos.y + kGap + kPillH);
+            const int  x     = juce::jlimit (kMargin, juce::jmax (kMargin, getWidth() - kMargin - width),
+                                             hoverPos.x - 12);
+
+            const auto pill = juce::Rectangle<int> (x, y, width, kPillH).toFloat();
+            g.setColour (config.ground.withAlpha (0.82f));
+            g.fillRoundedRectangle (pill, 4.0f);
+            g.setColour (config.accent.withAlpha (0.30f));
+            g.drawRoundedRectangle (pill.reduced (0.5f), 4.0f, 1.0f);
+
+            g.setFont (f);
+            g.setColour (config.text.withAlpha (0.70f));
+            g.drawText (hoverUrl, pill.reduced (8.0f, 0.0f).toNearestInt(),
+                        juce::Justification::centredLeft, true);   // elides rather than overflows
+        }
+
         juce::Font wordmarkFontAt (float h) const
         {
             return brandTypeface != nullptr
                      ? juce::Font (juce::FontOptions().withHeight (h).withTypeface (brandTypeface))
-                     : juce::Font (juce::FontOptions (h, juce::Font::bold));
+                     : brand::wordmarkFont (h);
         }
         juce::Font wordmarkFont() const { return wordmarkFontAt (wordmarkH); }
 
@@ -679,11 +790,10 @@ private:
 
                 markArea = left.removeFromLeft (d).withSizeKeepingCentre (d, d);
                 left.removeFromLeft (10);
-                if (config.drawByline != nullptr)
-                {
-                    catArea = right.removeFromLeft (d).withSizeKeepingCentre (d, d);
-                    right.removeFromLeft (10);
-                }
+                // The maker's half always carries a mark: the product may override it, but the
+                // library has one of its own, so the lockup is never half missing.
+                catArea = right.removeFromLeft (d).withSizeKeepingCentre (d, d);
+                right.removeFromLeft (10);
 
                 const float probeH = kTitleH * 0.5f;
                 auto fitted = [&] (const juce::Font& probe, const juce::String& text, int avail)
@@ -692,12 +802,11 @@ private:
                                   / juce::jmax (1.0f, textWidth (probe, text));
                 };
                 const float hName   = fitted (wordmarkFontAt (probeH), config.productName, left.getWidth() - kCellPad);
-                const float hByline = fitted (juce::Font { juce::FontOptions (probeH) },
-                                              config.byline, right.getWidth() - kCellPad);
+                const float hByline = fitted (wordmarkFontAt (probeH), config.byline, right.getWidth() - kCellPad);
                 wordmarkH = juce::jlimit (kTitleH * 0.22f, kTitleH * 0.62f, juce::jmin (hName, hByline));
 
                 wordmarkX = left.getX();
-                link.setFont (juce::FontOptions (wordmarkH), false, juce::Justification::centredLeft);
+                link.setFont (wordmarkFontAt (wordmarkH), false, juce::Justification::centredLeft);
                 link.setBounds (right.withSizeKeepingCentre (right.getWidth(), (int) wordmarkH + 10));
 
                 // The product's half of the lockup — its mark and its name — opens the product page.
@@ -1003,6 +1112,9 @@ private:
         bool                  asDialog = false;              // paints its own ground when true
         bool                  isRelease = true;              // the running build IS a clean release tag
         juce::URL             feedUrl;                       // what the print opens (same as the words)
+        juce::String          hoverUrl;                      // the address the readout is showing
+        juce::Component*      hoverSource = nullptr;         // whose hover it belongs to
+        juce::Point<int>      hoverPos;                      // ...and where the cursor is, in panel coords
         juce::ToggleButton    autoCheck;
 
         juce::TextButton      check;
