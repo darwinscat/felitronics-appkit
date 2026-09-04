@@ -26,6 +26,40 @@ struct ChromeMetrics
 };
 
 //==============================================================================
+// One tracked line of text, drawn the way a display face on a toolbar wants to be drawn: letters
+// spaced apart by a fraction of the height. With tracking 0 this is g.drawText with one glyph run,
+// so a consumer that supplies no face pays nothing for the seam existing.
+inline void drawTracked (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> area,
+                         const juce::Font& font, float tracking, juce::Justification just)
+{
+    if (text.isEmpty())
+        return;
+
+    if (tracking <= 0.0f)
+    {
+        g.setFont (font);
+        g.drawText (text, area, just, false);
+        return;
+    }
+
+    juce::GlyphArrangement ga;
+    ga.addLineOfText (font, text, 0.0f, 0.0f);
+
+    const float step = font.getHeight() * tracking;
+    for (int i = 1; i < ga.getNumGlyphs(); ++i)                    // spread, one gap at a time
+        ga.getGlyph (i).moveBy (step * (float) i, 0.0f);
+
+    const auto box = ga.getBoundingBox (0, -1, true);
+    const float x  = just.testFlags (juce::Justification::right)   ? area.getRight() - box.getWidth()
+                   : just.testFlags (juce::Justification::left)    ? area.getX()
+                                                                   : area.getCentreX() - box.getWidth() * 0.5f;
+    const float y  = area.getCentreY() + (font.getAscent() - font.getDescent()) * 0.5f;
+
+    ga.moveRangeOfGlyphs (0, -1, x - box.getX(), y);
+    ga.draw (g);
+}
+
+//==============================================================================
 // ChromeTheme — the chrome's paint colours, supplied by the CONSUMER (it seeds them from its own
 // palette). A flat POD aggregate held BY VALUE everywhere (2 floats' worth of metrics + these
 // colours cost nothing to copy and remove every dangling-reference hazard for a consumer that builds
@@ -54,6 +88,14 @@ struct ChromeTheme
     juce::Colour text       = juce::Colour (0xffd8d8d8);   // bright label (hover / active)
     juce::Colour textDim    = juce::Colour (0x99ffffff);   // dim label (at rest)
     juce::Colour activeText  = juce::Colours::white;       // the on-state label inside the active register's frame
+
+    // The chrome's TYPE, added in the same spirit as the colours: a product that wants its own face
+    // on the bar supplies one, and a product that says nothing keeps the host's system font — which
+    // is what every consumer of this header had before these two fields existed. `tracking` is extra
+    // letter spacing as a fraction of the font height; a display face on a toolbar usually wants a
+    // little (0.05–0.1), a text face wants none.
+    juce::Typeface::Ptr display;                           // null = the system face
+    float               tracking = 0.0f;                   // em, added between letters
 
     // A named factory equal to `ChromeTheme{}` — reads clearly at a call site ("give me the default
     // dark chrome") and documents intent. A product with its own palette (or a light theme) supplies

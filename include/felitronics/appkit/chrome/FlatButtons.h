@@ -29,12 +29,35 @@ public:
 
     ChromeTheme theme = ChromeTheme::makeDefaultDark();   // the owning cell overwrites with the consumer theme
 
+    // The label's size in points; a display face usually wants a touch less than a text one.
+    float textHeight = 12.0f;
+
     void paintButton (juce::Graphics& g, bool highlighted, bool) override
     {
         g.setColour ((highlighted ? theme.text : theme.textDim).withAlpha (isEnabled() ? 1.0f : 0.4f));
-        g.setFont (juce::Font (juce::FontOptions (12.0f)));
-        g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred);
+        drawTracked (g, getButtonText(), getLocalBounds().toFloat(), font(), theme.tracking,
+                     juce::Justification::centred);
     }
+
+    // What the item would need to show its label without squeezing — a caller laying a toolbar out
+    // cannot guess it once the face is the product's choice rather than the system's.
+    int preferredWidth (int padding = 16) const
+    {
+        juce::GlyphArrangement ga;
+        ga.addLineOfText (font(), getButtonText(), 0.0f, 0.0f);
+        const float tracked = font().getHeight() * theme.tracking * (float) juce::jmax (0, ga.getNumGlyphs() - 1);
+        return juce::roundToInt (ga.getBoundingBox (0, -1, true).getWidth() + tracked) + padding;
+    }
+
+private:
+    juce::Font font() const
+    {
+        return theme.display != nullptr
+                 ? juce::Font (juce::FontOptions().withHeight (textHeight).withTypeface (theme.display))
+                 : juce::Font (juce::FontOptions (textHeight));
+    }
+
+public:
 };
 
 //==============================================================================
