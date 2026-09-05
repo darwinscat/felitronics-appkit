@@ -297,6 +297,24 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
 
     # The compiled-in identity: the mark parses and inks, the subset face decodes and still has the
     # glyphs the family sets in it. Silent fallbacks are the failure mode this catches.
+    # The footer build stamp: what part of a git-describe reaches the line, what marks a build that
+    # is not the release it descends from, and how much room the line asks for.
+    add_executable(appkit_version_stamp_tests tests/VersionStampFalsifyTests.cpp)
+    target_link_libraries(appkit_version_stamp_tests PRIVATE
+        felitronics::appkit
+        juce::juce_events juce::juce_data_structures juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_version_stamp_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_version_stamp_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_version_stamp_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_version_stamp_tests COMMAND appkit_version_stamp_tests)
+
     add_executable(appkit_brand_assets_tests tests/BrandAssetsFalsifyTests.cpp)
     target_link_libraries(appkit_brand_assets_tests PRIVATE
         felitronics::appkit
