@@ -94,7 +94,14 @@ public:
         }
         g.setColour (getToggleState() ? theme.activeText
                                       : highlighted ? theme.text : theme.textDim);
-        g.setFont (juce::Font (juce::FontOptions (textHeight).withStyle ("Bold")));
+        // The register letters are OURS — four fixed characters we chose, never anything a
+        // player typed — so they are set in the product's own face when it supplies one. That
+        // is the whole rule for type on this bar: our words wear the brand, the player's words
+        // wear the system's face, because a brand face cannot be trusted to have every letter
+        // a name might need.
+        g.setFont (theme.display != nullptr
+                     ? juce::Font (juce::FontOptions().withHeight (textHeight).withTypeface (theme.display))
+                     : juce::Font (juce::FontOptions (textHeight).withStyle ("Bold")));
         g.drawText (getButtonText(), getLocalBounds(), juce::Justification::centred);
 
         if (edited)

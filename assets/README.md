@@ -10,8 +10,9 @@ other.
 | `catlogo.svg` | inlined in `BrandAssets.h` | every product's header and about box |
 | `Michroma-Regular.ttf` | **source** for the base64 in `BrandAssets.h` | the display face of the whole family |
 | `Michroma-web.woff2` | copied into a site's static assets by hand | headings on darwinscat.com |
-| `ScienceGothic-VF.ttf` | **not shipped in any binary** | nothing yet — see below |
-| `Tektur-VF.ttf` | **not shipped in any binary** | nothing yet — see below |
+| `ScienceGothic-VF.ttf` | **source** for the base64 in `BrandTextFace.h` | the TEXT face — anything a player types |
+| `ScienceGothic-w146-g300-12lang.ttf` | the cut instance that base64 was made from | kept so the header can be rebuilt byte-for-byte |
+| `Tektur-VF.ttf` | **not shipped in any binary** | nothing yet — the narrow candidate |
 
 ## The two that are only stored
 

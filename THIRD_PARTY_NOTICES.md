@@ -9,7 +9,7 @@ headers** and therefore travel inside every binary that uses them. They are list
 | Component | Where it is | License | Notes |
 |---|---|---|---|
 | **Michroma** (font) | **embedded in `include/felitronics/appkit/BrandAssets.h`** as base64, whole; the original at `assets/Michroma-Regular.ttf`; a cut web copy at `assets/Michroma-web.woff2` | SIL OFL 1.1 | © 2011 The Michroma Project Authors (https://github.com/googlefonts/Michroma-font). Licence text at [`assets/Michroma-OFL.txt`](assets/Michroma-OFL.txt). OFL §1 permits embedding in software under another licence (AGPLv3 here); the font itself stays OFL. |
-| **Science Gothic** (font) | `assets/ScienceGothic-VF.ttf` — **stored only**, compiled into nothing | SIL OFL 1.1 | © 2024 Font Detective LLC (https://github.com/googlefonts/science-gothic). Licence text at [`assets/ScienceGothic-OFL.txt`](assets/ScienceGothic-OFL.txt). Kept as a candidate for the Cyrillic the family will need — see [`assets/README.md`](assets/README.md). |
+| **Science Gothic** (font) | **embedded in `include/felitronics/appkit/BrandTextFace.h`** as base64, pinned at wdth 146 / wght 300 and cut to twelve languages; the original at `assets/ScienceGothic-VF.ttf`, the cut instance at `assets/ScienceGothic-w146-g300-12lang.ttf` | SIL OFL 1.1 | © 2024 Font Detective LLC (https://github.com/googlefonts/science-gothic). Licence text at [`assets/ScienceGothic-OFL.txt`](assets/ScienceGothic-OFL.txt). The TEXT face: it sets what a product does not choose — a preset name, a device name — because Michroma has no Cyrillic. See [`assets/README.md`](assets/README.md). |
 | **Tektur** (font) | `assets/Tektur-VF.ttf` — **stored only**, compiled into nothing | SIL OFL 1.1 | © 2023 The Tektur Project Authors (https://github.com/hyvyys/Tektur). Licence text at [`assets/Tektur-OFL.txt`](assets/Tektur-OFL.txt). The narrow candidate — see [`assets/README.md`](assets/README.md). |
 | **libwebp** | fetched by CMake, **only** with `-DFELITRONICS_APPKIT_WEBP=ON` (default OFF) | BSD-3-Clause | © Google Inc. Pinned by tag like JUCE. A consumer that never asks for `felitronics::appkit_webp` links none of it. |
 | **JUCE** 8.0.14 | supplied by the CONSUMER; fetched here only for the test tier | AGPLv3 (our option) | This repo being AGPL + source-public *is* the JUCE compliance — no key, no flag. |
@@ -45,8 +45,8 @@ Three OFL points, since anything cut or re-flavoured is a **Modified Version** o
   Names*, and none of the three notices declares one — each reads simply "Copyright … Project
   Authors". The copies therefore keep their family names, which is also what makes the embedded
   Michroma interchangeable with a product's own copy of the original.
-- **Stored is still distributed.** Science Gothic and Tektur are compiled into nothing, but this
-  repository is public, so they travel with it and their notices are owed all the same.
+- **Stored is still distributed.** Tektur is compiled into nothing, but this repository is public,
+  so it travels with it and its notice is owed all the same.
 
 ## The Darwin's Cat mark
 
