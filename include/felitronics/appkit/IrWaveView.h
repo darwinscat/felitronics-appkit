@@ -131,7 +131,8 @@ namespace irwave
     }
 } // namespace irwave
 
-class IrWaveView final : public juce::Component
+class IrWaveView final : public juce::Component,
+                         private juce::Timer
 {
 public:
     IrWaveView() { formatManager.registerBasicFormats(); }
@@ -149,6 +150,12 @@ public:
     // the middle band — past the left third it zooms in (fine milliseconds near zero), past the
     // right two-thirds it zooms out (always more room to pull). Stays where the drag left it.
     bool trimServoZoom = true;
+
+    /** How briskly the picture travels to a new window: the fraction of the remaining ratio it
+        covers each tick, at 60 a second. Lower is slower and softer; 1.0 is the old jump.
+        0.06 puts the bulk of the travel around a third of a second — a zoom you can watch happen
+        rather than one you have to re-read after it lands. */
+    double glideStep = 0.06;
 
     // Each cut wears its own colour on its line, and the cut fill is the consumer's to tint —
     // defaults follow the accent so a one-colour picture stays a one-colour picture.
@@ -174,7 +181,8 @@ public:
         metrics.clear();
         trimFraction = 1.0f;
         irMs = 0.0;
-        viewWindowMs = 0.0;
+        viewWindowMs = viewTargetMs = 0.0;
+        stopTimer();
         repaint();
     }
 
@@ -202,13 +210,39 @@ public:
         onTrimChanged). The right-click menu drives this; a consumer may too. */
     void setViewWindow (double ms)
     {
-        viewWindowMs = juce::jmax (0.0, ms);
-        rebucket();
+        // The RULE lands at once — a handle outside the new window is pulled in immediately, and
+        // that is a parameter write, which must happen once and not once per frame of the travel.
+        // Only the PICTURE takes its time getting there.
+        glideTo (ms);
 
         if (trimEnabled)
             clampTrimToWindow();
 
         repaint();
+    }
+
+    /** THE FRAMING LAW: where the picture stands for the trim it is showing.
+
+        The window becomes twice the trim's milliseconds, so the trim's edge — a handle in manual,
+        a chosen window's cut — sits in the MIDDLE of the frame, with as much of the shot before it
+        as after. Floored at 20 ms, because below that there is nothing to read; and a window that
+        outgrows the shot is no window, so it collapses to FULL.
+
+        Twice is not arbitrary: the servo inside a drag keeps the trim between a third and two
+        thirds of the frame, and the middle of that band is exactly one half. This is that same
+        band's centre, applied in one go.
+
+        The point of having it at all is that the picture then follows the TRIM and not the story
+        told about it. A trim of 50 ms looks the same whether the hand put it there, a menu named
+        it, or a preset brought it back — the picture only moves when the trim moves. */
+    void frameTrim()
+    {
+        if (irMs <= 0.0)
+            return;
+
+        const double win = juce::jlimit (20.0, irMs, 2.0 * (double) trimFraction * irMs);
+
+        glideTo (win >= irMs ? 0.0 : win);
     }
 
     // A live spectrum behind the impulse, drawn by the OWNER — handed the impulse's rectangle, so
@@ -256,9 +290,7 @@ public:
         const float mid   = r.getCentreY();
         const float amp   = r.getHeight() * 0.46f;
         const int   n     = (int) peaks.size();
-        const float trimX = r.getX() + r.getWidth()
-                                * (float) juce::jmin (1.0, (double) trimFraction * irMs
-                                                               / juce::jmax (1.0, effectiveMs()));
+        const float trimX = trimXFor (r);
 
         g.setColour (juce::Colour (0x14ffffff));
         g.drawHorizontalLine ((int) mid, r.getX(), r.getRight());
@@ -278,7 +310,12 @@ public:
             g.drawLine (x, mid - h, x, mid + h, 1.0f);
         }
 
-        if (trimInteractive && trimEnabled)
+        // WHERE THE CUT IS is a fact of the picture, whoever named it. It used to be drawn only
+        // while the trim was a handle, so a chosen 50 ms had nothing to mark it but the wave
+        // changing colour, and against a grey ruler line at the same place that reads as no answer
+        // at all. The shade and the edge belong to the trim; only the GRIP belongs to the hand —
+        // a tab on an edge no hand can move is a promise the picture cannot keep.
+        if (trimEnabled)
         {
             if (trimFraction < 0.999f)
             {
@@ -286,17 +323,20 @@ public:
                 g.fillRect (juce::Rectangle<float> (trimX, r.getY(), r.getRight() - trimX, r.getHeight()));
             }
 
-            // The handle is always there, so TRIM is discoverable — kept just inside the right edge
-            // at full length.
+            // Kept just inside the right edge at full length, so TRIM is discoverable.
             const float hx = juce::jlimit (r.getX() + 4.0f, r.getRight() - 4.0f, trimX);
             g.setColour (accent.withAlpha (0.8f));
             g.drawLine (hx, r.getY(), hx, r.getBottom(), 1.5f);
-            const juce::Rectangle<float> tab (hx - 6.0f, mid - 20.0f, 12.0f, 40.0f);
-            g.setColour (accent);
-            g.fillRoundedRectangle (tab, 3.0f);
-            g.setColour (juce::Colour (0xcc141417));
-            for (int i = -1; i <= 1; ++i)
-                g.drawLine (hx + (float) i * 2.5f, mid - 8.0f, hx + (float) i * 2.5f, mid + 8.0f, 1.0f);
+
+            if (trimInteractive)
+            {
+                const juce::Rectangle<float> tab (hx - 6.0f, mid - 20.0f, 12.0f, 40.0f);
+                g.setColour (accent);
+                g.fillRoundedRectangle (tab, 3.0f);
+                g.setColour (juce::Colour (0xcc141417));
+                for (int i = -1; i <= 1; ++i)
+                    g.drawLine (hx + (float) i * 2.5f, mid - 8.0f, hx + (float) i * 2.5f, mid + 8.0f, 1.0f);
+            }
         }
 
         if (eqVisible && (hpfOn || lpfOn))
@@ -327,7 +367,23 @@ public:
         dragMode = pickMode (e.position); stepAnchor = e.position.y; applyDrag (e.position); repaint();
     }
     void mouseDrag (const juce::MouseEvent& e) override { applyDrag (e.position); repaint(); }
-    void mouseUp   (const juce::MouseEvent& e) override { dragMode = Drag::none; hoverEl = pickMode (e.position); repaint(); }
+    void mouseUp   (const juce::MouseEvent& e) override
+    {
+        // The hand LETS GO: the trim has come to rest, so the picture settles into the frame that
+        // trim asks for. During the drag the servo only nudges the window when the handle would
+        // otherwise leave the frame — it has to, or the handle would stop following the cursor —
+        // and where that leaves the window depends on which way the hand was moving. Settling here
+        // is what makes a hand-placed 50 ms and a 50 ms picked from a menu the same picture.
+        const bool wasTrimming = dragMode == Drag::trim;
+
+        dragMode = Drag::none;
+        hoverEl  = pickMode (e.position);
+
+        if (wasTrimming && trimServoZoom)
+            frameTrim();
+
+        repaint();
+    }
     void mouseMove (const juce::MouseEvent& e) override { if (const auto h = pickMode (e.position); h != hoverEl) { hoverEl = h; repaint(); } }
     void mouseExit (const juce::MouseEvent&)   override { if (hoverEl != Drag::none) { hoverEl = Drag::none; repaint(); } }
 
@@ -347,9 +403,37 @@ private:
     static constexpr float kFMin    = 20.0f;
     static constexpr float kFMax    = 20000.0f;
     static constexpr float kGrabPx  = 14.0f;
-    static constexpr float kSnapPx  = 7.0f;      // TRIM magnet radius (px) to the ms marks
+    // The magnet's reach, in pixels. Wide on purpose: the marks ARE the places worth stopping, so
+    // the hand should fall into them rather than be asked to aim. Command held turns it off for
+    // the times a number between the numbers is what you want.
+    static constexpr float kSnapPx  = 19.0f;
     static constexpr int   kBuckets = 512;
-    static constexpr double kTimeMarksMs[] = { 20.0, 50.0, 100.0, 200.0, 500.0 };
+    static constexpr int   kGlideHz = 60;       // the zoom's travel, frames a second
+
+    /** The ms marks: the ruler's lines, the magnet's stops, and the window choices in the
+        picture's own menu — ONE list, because a hand that cannot land on a number the owner's
+        menu offers reads as a hand that is being fought. 25 rather than 20 for the shortest, to
+        match the window the cabinet names. */
+    static constexpr double kTimeMarksMs[] = { 25.0, 50.0, 100.0, 200.0, 500.0 };
+
+    /** How far into the frame a mark must stand to be worth drawing — a tenth of it. */
+    static constexpr double kMarkRoom = 10.0;
+
+    /** Whether that mark is on the picture at all: it lives in the outer nine tenths of the frame
+        and nowhere else. Past the right edge there is nothing to point at; nearer the left edge
+        than a tenth it is a smudge rather than a reading — at the whole 1276 ms shot 25, 50 and
+        100 stand at two, four and eight percent, on top of one another, and three unreadable
+        numbers are worse than one readable one. Each comes back as the window closes on it.
+
+        ONE rule for all five, not a table of exceptions: a mark is shown while it stands at least
+        a tenth of the way across. The MAGNET asks the same question — a stop the eye cannot see is
+        a hand being fought, so the lines you can land on are exactly the lines you are shown. */
+    bool markShown (size_t i) const
+    {
+        const double win = effectiveMs();
+
+        return kTimeMarksMs[i] < win && win < kTimeMarksMs[i] * kMarkRoom;
+    }
 
     float xForFreq (float f, juce::Rectangle<float> r) const { return irwave::xForFreq (f, r.getX(), r.getWidth(), kFMin, kFMax); }
     float freqForX (float x, juce::Rectangle<float> r) const { return irwave::freqForX (x, r.getX(), r.getWidth(), kFMin, kFMax); }
@@ -381,16 +465,22 @@ private:
     {
         if (irMs <= 0.0)
             return;
-        for (const double ms : kTimeMarksMs)
+        // Every mark reads the same, because every mark does the same thing: it is a place the
+        // trim lands. There used to be two ranks — 50 and 100 bright and bold, the rest a whisper
+        // — which said the whisperers were somehow lesser stops. They are not; they are the ones
+        // that had no room, and the answer to no room is to stand out of the way, not to fade.
+        for (size_t i = 0; i < std::size (kTimeMarksMs); ++i)
         {
-            if (ms >= effectiveMs())
-                break;
-            const bool  key = (ms == 50.0 || ms == 100.0);
-            const float x   = r.getX() + r.getWidth() * (float) (ms / effectiveMs());
-            g.setColour (juce::Colour ((juce::uint32) (key ? 0x30ffffff : 0x12ffffff)));
+            if (! markShown (i))
+                continue;
+
+            const double ms = kTimeMarksMs[i];
+            const float  x  = r.getX() + r.getWidth() * (float) (ms / effectiveMs());
+
+            g.setColour (juce::Colour (0x30ffffffu));
             g.drawVerticalLine ((int) x, r.getY(), r.getBottom());
-            g.setColour (juce::Colour ((juce::uint32) (key ? 0xaab2b2ba : 0x66808088)));
-            g.setFont (juce::FontOptions (key ? 9.5f : 8.5f, key ? juce::Font::bold : juce::Font::plain));
+            g.setColour (juce::Colour (0xaab2b2bau));
+            g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
             g.drawText (juce::String ((int) ms), juce::Rectangle<float> (x + 2.0f, r.getY() + 1.0f, 32.0f, 11.0f),
                         juce::Justification::topLeft, false);
         }
@@ -444,6 +534,16 @@ private:
     }
 
     // The value in a pill beside the hovered or dragged handle: Hz, kHz, ms.
+    /** Where the trim's edge falls on screen. The fraction is of the WHOLE shot and the picture
+        shows a window of it, so the two have to be divided — anything that points at the trim
+        without doing that points at it only when the picture is showing everything. */
+    float trimXFor (juce::Rectangle<float> r) const
+    {
+        return r.getX() + r.getWidth()
+                 * (float) juce::jmin (1.0, (double) trimFraction * irMs
+                                              / juce::jmax (1.0, effectiveMs()));
+    }
+
     void drawReadout (juce::Graphics& g, juce::Rectangle<float> r)
     {
         const Drag el = (dragMode != Drag::none) ? dragMode : hoverEl;
@@ -465,7 +565,7 @@ private:
         else if (el == Drag::trim && trimEnabled)
         {
             text = juce::String (juce::roundToInt (trimFraction * irMs)) + " ms";
-            x = juce::jlimit (r.getX() + 4.0f, r.getRight() - 4.0f, r.getX() + r.getWidth() * trimFraction);
+            x = juce::jlimit (r.getX() + 4.0f, r.getRight() - 4.0f, trimXFor (r));
             y = r.getCentreY() - 8.0f;
         }
         else
@@ -547,11 +647,14 @@ private:
         if (irMs > 0.0 && ! juce::ModifierKeys::getCurrentModifiers().isCommandDown())
         {
             float best = kSnapPx;
-            for (const double ms : kTimeMarksMs)
+            for (size_t i = 0; i < std::size (kTimeMarksMs); ++i)
             {
-                if (ms >= effectiveMs())
-                    break;
-                const float mx = w * (float) (ms / effectiveMs());
+                if (! markShown (i))     // the same lines the eye is given, and no others
+                    continue;
+
+                const double ms = kTimeMarksMs[i];
+                const float  mx = w * (float) (ms / effectiveMs());
+
                 if (std::abs (x - mx) < best)
                 {
                     best = std::abs (x - mx);
@@ -569,8 +672,8 @@ private:
         if (trimServoZoom && irMs > 0.0)
         {
             const double ms  = (double) trimFraction * irMs;
-            const double win = effectiveMs();
-            double newWin = win;
+            const double win = targetMs();          // where it is HEADED, not where it is now:
+            double newWin = win;                    // judging the travel re-aims it every frame
 
             if      (ms < win / 3.0)       newWin = ms * 3.0;
             else if (ms > win * 2.0 / 3.0) newWin = ms * 1.5;
@@ -578,10 +681,7 @@ private:
             newWin = juce::jlimit (20.0, irMs, newWin);
 
             if (! juce::approximatelyEqual (newWin, win))
-            {
-                viewWindowMs = newWin >= irMs ? 0.0 : newWin;
-                rebucket();
-            }
+                glideTo (newWin >= irMs ? 0.0 : newWin);
         }
 
         repaint();
@@ -644,12 +744,65 @@ private:
     bool                     trimInteractive = false;
     bool                     trimEnabled     = false;
     double                   irMs            = 0.0;
-    double                   viewWindowMs    = 0.0;   // 0 = the whole IR
+    double                   viewWindowMs    = 0.0;   // 0 = the whole IR — where the picture IS
+    double                   viewTargetMs    = 0.0;   // ...and where it is going. Same encoding.
     Drag                     dragMode        = Drag::none;
     Drag                     hoverEl         = Drag::none;
 
     // What the picture spans right now, in ms.
     double effectiveMs() const { return viewWindowMs > 0.0 ? juce::jmin (viewWindowMs, irMs) : irMs; }
+
+    // ...and what it will span when the glide is done. Everything that must not be decided twice
+    // reads THIS one: a rule applied against a window still on its way would be applied again on
+    // every frame of the way, and `clampTrimToWindow` writes a parameter each time it fires.
+    double targetMs() const { return viewTargetMs > 0.0 ? juce::jmin (viewTargetMs, irMs) : irMs; }
+
+    /** Point the picture at a window and let it travel. The zoom is geometric — a step is a
+        RATIO, not a number of milliseconds — because that is how a zoom is read: halving 1000 ms
+        and halving 40 ms should feel like the same gesture. */
+    void glideTo (double ms)
+    {
+        viewTargetMs = juce::jmax (0.0, ms);
+
+        if (juce::approximatelyEqual (targetMs(), effectiveMs()))
+        {
+            viewWindowMs = viewTargetMs;   // already there; keep the encoding honest (0 == FULL)
+            return;
+        }
+
+        if (! isTimerRunning())
+            startTimerHz (kGlideHz);
+    }
+
+    void timerCallback() override
+    {
+        const double from = effectiveMs(), to = targetMs();
+
+        if (from <= 0.0 || to <= 0.0 || irMs <= 0.0)
+        {
+            viewWindowMs = viewTargetMs;
+            stopTimer();
+            repaint();
+            return;
+        }
+
+        // One tick moves a fixed FRACTION of the remaining ratio, so the travel is exponential and
+        // ends where it was aimed rather than creeping at it forever: close enough is arrived.
+        const double next = from * std::pow (to / from, glideStep);
+
+        if (std::abs (std::log (to / next)) < 0.01)   // within 1% — the eye is done before this
+        {
+            viewWindowMs = viewTargetMs;
+            stopTimer();
+        }
+        else
+        {
+            viewWindowMs = next >= irMs ? 0.0 : next;
+        }
+
+        rebucket();
+        repaint();
+    }
 
     void rebucket()
     {
@@ -664,10 +817,10 @@ private:
     // the pull is a real parameter write.
     void clampTrimToWindow()
     {
-        if (viewWindowMs <= 0.0 || irMs <= 0.0)
+        if (viewTargetMs <= 0.0 || irMs <= 0.0)
             return;
 
-        const float limit = (float) (effectiveMs() / irMs);
+        const float limit = (float) (targetMs() / irMs);
 
         if (trimFraction > limit + 1.0e-4f)
         {
@@ -702,10 +855,10 @@ private:
             if ((int) ms == 200) label += " - WET";
 
             m.addItem ((int) i + 1, label, ms < irMs,
-                       juce::approximatelyEqual (viewWindowMs, ms));
+                       juce::approximatelyEqual (viewTargetMs, ms));
         }
 
-        m.addItem (100, "FULL", true, viewWindowMs <= 0.0);
+        m.addItem (100, "FULL", true, viewTargetMs <= 0.0);
         m.addSeparator();
         m.addItem (200, "MANUAL TRIM", trimInteractive, trimEnabled);
 
