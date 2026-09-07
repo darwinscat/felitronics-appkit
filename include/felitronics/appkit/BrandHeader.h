@@ -15,9 +15,11 @@
 //==============================================================================
 
 #include <felitronics/appkit/Brand.h>
+#include <felitronics/appkit/BrandAssets.h>
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <cstring>
 #include <functional>
 
 namespace felitronics::appkit
@@ -25,6 +27,17 @@ namespace felitronics::appkit
 
 struct BrandHeader : juce::Component
 {
+    /** THE FAMILY'S OWN KIT — the mark and the face this library already carries. A product with
+        no reason to differ passes nothing but its name, and that is also what keeps a second copy
+        of either out of its binary: the pair below exists for a product that must override, not as
+        the only way in. */
+    BrandHeader (juce::String productName, juce::String homeUrl)
+        : logo (juce::Drawable::createFromImageData (brand::assets::catSvg,
+                                                     std::strlen (brand::assets::catSvg))),
+          wordmarkFace (brand::wordmarkTypeface()),
+          product (std::move (productName)), home (std::move (homeUrl)) {}
+
+    /** A product that carries its own mark or its own face hands them over as bytes. */
     BrandHeader (const void* logoSvg, size_t logoSvgSize,
                  const void* wordmarkTtf, size_t wordmarkTtfSize,
                  juce::String productName, juce::String homeUrl)
