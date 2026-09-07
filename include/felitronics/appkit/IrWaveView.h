@@ -240,7 +240,9 @@ public:
         if (irMs <= 0.0)
             return;
 
-        const double win = juce::jlimit (20.0, irMs, 2.0 * (double) trimFraction * irMs);
+        // The band's centre — see kServoEdge. Twice the milliseconds, written as the middle of the
+        // same band the servo holds, so the two can never drift apart.
+        const double win = juce::jlimit (20.0, irMs, (double) trimFraction * irMs / 0.5);
 
         glideTo (win >= irMs ? 0.0 : win);
     }
@@ -418,6 +420,14 @@ private:
 
     /** How far into the frame a mark must stand to be worth drawing — a tenth of it. */
     static constexpr double kMarkRoom = 10.0;
+
+    /** How near the frame's edge the handle may drift before the window goes after it: it lives
+        between this and one minus this, and the picture holds still for the whole of that. A
+        narrower band means the zoom starts earlier and the ground moves under the hand sooner
+        than the hand asked; a fifth leaves most of the frame as room to work in, and the servo
+        only speaks up once the handle is genuinely running out of picture. The band's CENTRE is
+        where `frameTrim` puts it, which is why that one is twice the milliseconds. */
+    static constexpr double kServoEdge = 0.2;
 
     /** Whether that mark is on the picture at all: it lives in the outer nine tenths of the frame
         and nowhere else. Past the right edge there is nothing to point at; nearer the left edge
@@ -675,8 +685,10 @@ private:
             const double win = targetMs();          // where it is HEADED, not where it is now:
             double newWin = win;                    // judging the travel re-aims it every frame
 
-            if      (ms < win / 3.0)       newWin = ms * 3.0;
-            else if (ms > win * 2.0 / 3.0) newWin = ms * 1.5;
+            // Out of the band: bring the window to where the handle stands ON the edge it left,
+            // and no further — the least correction that puts it back in the picture.
+            if      (ms < win * kServoEdge)         newWin = ms / kServoEdge;
+            else if (ms > win * (1.0 - kServoEdge)) newWin = ms / (1.0 - kServoEdge);
 
             newWin = juce::jlimit (20.0, irMs, newWin);
 
