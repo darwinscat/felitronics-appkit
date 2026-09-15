@@ -8,6 +8,18 @@ on:
     branches: [main]
   pull_request:
 
+# The job token gets only what this workflow needs: it checks out and builds, it never
+# writes to the repository. CodeQL's one finding in this family, ever, was a workflow
+# without this block.
+permissions:
+  contents: read
+
+# One live run per branch or pull request: a push on top of a push cancels the run it
+# replaced instead of finishing it against code nobody will merge.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   tests:
     name: ${{ matrix.os }}${{ matrix.juce == 'ON' && ' + JUCE gate' || '' }}
@@ -22,8 +34,9 @@ jobs:
           - os: macos-latest
             juce: "ON"
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DFELITRONICS_APPKIT_TESTS_WITH_JUCE=${{ matrix.juce }}
       - name: Build
