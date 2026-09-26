@@ -27,6 +27,8 @@
 #endif
 
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
 
 using namespace felitronics::appkit;
 
@@ -36,6 +38,27 @@ static void ok (bool cond, const std::string& what)
 {
     ++checks;
     if (! cond) { ++failures; std::printf ("    FAIL: %s\n", what.c_str()); }
+}
+
+// The process's local zone, switched for a check: the build clock is read on the reader's clock,
+// so its expected text is only known once the zone is pinned.
+static void useZone (const char* tz)
+{
+   #if defined (_WIN32)
+    _putenv_s ("TZ", tz);
+    _tzset();
+   #else
+    setenv ("TZ", tz, 1);
+    tzset();
+   #endif
+}
+
+static void stampIs (juce::int64 stamp, const char* tz, const juce::String& expected)
+{
+    useZone (tz);
+    const auto got = VersionBadge::prettyBuildStamp (stamp);
+    ok (got == expected, std::to_string (stamp) + " in " + tz + " reads \"" + expected.toStdString()
+                             + "\", got \"" + got.toStdString() + "\"");
 }
 
 static void group (const char* name) { std::printf ("  - %s\n", name); }
@@ -110,6 +133,41 @@ int main()
             "the product row links to its base release tag");
     }
 
+    group ("VersionBadge build clock: the UTC stamp reads on the local clock, zone named");
+    {
+        // The report that started it: built 22:23 UTC, read in Berlin at 00:23 the next day.
+        stampIs (20260926222353LL, "Europe/Berlin", "2026-09-27 00:23 (UTC+2)");
+        stampIs (20260926222353LL, "UTC", "2026-09-26 22:23 (UTC)");
+        stampIs (20260926222359LL, "UTC", "2026-09-26 22:23 (UTC)");   // seconds drop, never round up
+
+        // The offset is the zone's at the BUILD instant, not today's: one zone, both of its offsets.
+        stampIs (20260112233000LL, "Europe/Berlin", "2026-01-13 00:30 (UTC+1)");
+        stampIs (20260329005959LL, "Europe/Berlin", "2026-03-29 01:59 (UTC+1)");   // last second of winter
+        stampIs (20260329010000LL, "Europe/Berlin", "2026-03-29 03:00 (UTC+2)");   // the hour that never is
+        stampIs (20261025005959LL, "Europe/Berlin", "2026-10-25 02:59 (UTC+2)");
+        stampIs (20261025010000LL, "Europe/Berlin", "2026-10-25 02:00 (UTC+1)");   // the hour that happens twice
+
+        // Zones off the hour, zones behind UTC, and a day, a month and a year crossed either way.
+        stampIs (20260926200000LL, "Asia/Kolkata", "2026-09-27 01:30 (UTC+5:30)");
+        stampIs (20260101000000LL, "Asia/Kathmandu", "2026-01-01 05:45 (UTC+5:45)");
+        stampIs (20260101020000LL, "America/St_Johns", "2025-12-31 22:30 (UTC-3:30)");
+        stampIs (20260701020000LL, "America/St_Johns", "2026-06-30 23:30 (UTC-2:30)");
+        stampIs (20260712000000LL, "America/Los_Angeles", "2026-07-11 17:00 (UTC-7)");
+        stampIs (20261231110000LL, "Pacific/Kiritimati", "2027-01-01 01:00 (UTC+14)");
+
+        // The calendar is the real one: leap days exist where they do, and only there.
+        stampIs (20280228230000LL, "Europe/Berlin", "2028-02-29 00:00 (UTC+1)");
+        stampIs (20260228230000LL, "Europe/Berlin", "2026-03-01 00:00 (UTC+1)");
+        stampIs (20000229120000LL, "UTC", "2000-02-29 12:00 (UTC)");
+
+        // Not a UTC instant in that shape: shown raw, never normalised into some other date.
+        for (const auto bad : { 0LL, 7LL, -20260926222353LL, -2026092622235LL, 202609262223530LL,
+                                99999999999999LL, 20261301000000LL, 20260001000000LL, 20260100120000LL,
+                                20260230120000LL, 21000229000000LL, 20260926240000LL, 20260926226000LL,
+                                20260926222360LL })
+            stampIs (bad, "Europe/Berlin", juce::String (bad));
+    }
+
     group ("VersionBadge table: the dev facts are columns, not suffixes on the version");
     {
         const auto loc   = VersionBadge::Panel::splitStamp ("v0.24.0 (local)");
@@ -125,6 +183,7 @@ int main()
         ok (plain.version == "8.0.14" && plain.state.isEmpty(), "a plain release number stays exactly itself");
         ok (VersionBadge::prettyBuildStamp (7) == "7", "a stamp that isn't fourteen digits passes through raw");
 
+        useZone ("UTC");   // the table's build cell below is asserted on a known clock
         BadgeChecker c ("1.2.3");
         auto cfg = versionConfig ("v0.8.0 (local)");
         cfg.licence = "AGPL-3.0-or-later";
@@ -137,7 +196,7 @@ int main()
         ok (panel.rows[0]->lead.getText().startsWith ("Badge Gate"), "row 0 is the product itself");
         ok (panel.rows[0]->state.getText() == "dirty"
                 && panel.rows[0]->commitLink.getButtonText() == "gdeadbee"
-                && panel.rows[0]->built.getText() == "2026-07-12 00:00:00",
+                && panel.rows[0]->built.getText() == "2026-07-12 00:00 (UTC)",
             "the product's state, commit and build clock live in their own columns");
         ok (panel.rows[0]->commitLink.getURL().toString (false).endsWith ("/commit/deadbee")
                 && panel.rows[0]->commit.getText().isEmpty(),
