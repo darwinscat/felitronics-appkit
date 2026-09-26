@@ -59,7 +59,7 @@ public:
         // The build stamp. Each product bakes its own generated version header at build time
         // (end users have no git repo) — pass those constants through here.
         juce::String gitHash;              // short HEAD hash → the "g<hash>" line linking to /commit/<hash>
-        juce::int64  buildNumber = 0;      // UTC YYYYMMDDHHMMSS → the "build N" annotation
+        juce::int64  buildNumber = 0;      // UTC YYYYMMDDHHMMSS, always UTC → shown as local time + zone
         int          buildCount  = 0;      // commits since the release tag → "· N commits" when > 0
         bool         gitDirty    = false;  // uncommitted tracked changes → "· dirty"
         juce::String os, arch, builder;    // the environment line: "<format> · <os> <arch> · <builder>"
@@ -232,18 +232,51 @@ private:
         return update::isCleanRelease (base.toStdString()) ? base : tag;
     }
 
-    // The 14-digit UTC build stamp (YYYYMMDDHHMMSS) sliced into human blocks:
-    // 20260713092444 -> "2026-07-13 09:24:44". The clock is UTC and stays unlabelled — the row is a
-    // build stamp, not a local time anyone converts. A stamp that isn't that shape (a generator
-    // failure path bakes a 0) is shown raw rather than mangled.
+    // The 14-digit UTC build stamp (YYYYMMDDHHMMSS) read on the reader's own clock, zone named:
+    // 20260926222353 in Berlin -> "2026-09-27 00:23 (UTC+2)". A bare UTC time read as local is an
+    // hour or two off with nothing to say so; a local time with its zone is both right and
+    // convertible back. The offset is the zone's AT THE BUILD INSTANT, not today's — a summer build
+    // opened in winter still says UTC+2. The stamp itself stays UTC: it is the build NUMBER, the
+    // same on CI and on a desk. A stamp that isn't a real UTC instant in that shape (a generator
+    // failure path bakes a 0; a month 13 is no date) is shown raw rather than mangled.
     static juce::String prettyBuildStamp (juce::int64 buildNumber)
     {
         const auto raw = juce::String (buildNumber);
-        if (raw.length() != 14)
+        if (buildNumber < 10000000000000LL || buildNumber > 99999999999999LL)
             return raw;
-        return raw.substring (0, 4)  + "-" + raw.substring (4, 6)   + "-" + raw.substring (6, 8)
-             + " "
-             + raw.substring (8, 10) + ":" + raw.substring (10, 12) + ":" + raw.substring (12, 14);
+
+        const int year   = (int) (buildNumber / 10000000000LL);
+        const int month  = (int) (buildNumber / 100000000LL % 100);
+        const int day    = (int) (buildNumber / 1000000LL % 100);
+        const int hour   = (int) (buildNumber / 10000LL % 100);
+        const int minute = (int) (buildNumber / 100LL % 100);
+        const int second = (int) (buildNumber % 100);
+        const bool leap  = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+        const int monthDays[] { 31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+        if (month < 1 || month > 12 || day < 1 || day > monthDays[month - 1]
+                || hour > 23 || minute > 59 || second > 59)
+            return raw;
+
+        const juce::Time utc (year, month - 1, day, hour, minute, second, 0, false);
+        // The zone offset at that instant: the local wall clock, re-read as if it were UTC, minus UTC.
+        const juce::Time wall (utc.getYear(), utc.getMonth(), utc.getDayOfMonth(),
+                               utc.getHours(), utc.getMinutes(), utc.getSeconds(), 0, false);
+        const auto offsetMinutes = (wall.toMilliseconds() - utc.toMilliseconds()) / 60000;
+
+        juce::String zone ("UTC");
+        if (offsetMinutes != 0)
+        {
+            const auto magnitude = std::abs (offsetMinutes);
+            zone << (offsetMinutes > 0 ? "+" : "-") << juce::String (magnitude / 60);
+            if (magnitude % 60 != 0)
+                zone << ":" << juce::String (magnitude % 60).paddedLeft ('0', 2);
+        }
+
+        return juce::String (utc.getYear()) + "-" + juce::String (utc.getMonth() + 1).paddedLeft ('0', 2)
+             + "-" + juce::String (utc.getDayOfMonth()).paddedLeft ('0', 2)
+             + " " + juce::String (utc.getHours()).paddedLeft ('0', 2)
+             + ":" + juce::String (utc.getMinutes()).paddedLeft ('0', 2)
+             + " (" + zone + ")";
     }
 
     //--- the CallOutBox content ----------------------------------------------
