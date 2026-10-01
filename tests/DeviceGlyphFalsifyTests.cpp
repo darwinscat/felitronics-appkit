@@ -82,7 +82,8 @@ int main()
         bool allNonBlank = true;
         bool allInside = true;
         for (const auto type : std::vector<DeviceType> { DeviceType::tube, DeviceType::bjt, DeviceType::fet,
-                                                         DeviceType::dsp, DeviceType::ic, DeviceType::diode })
+                                                         DeviceType::dsp, DeviceType::ic, DeviceType::diode,
+                                                         DeviceType::transformer, DeviceType::tape })
         {
             const auto img = renderStaticSpec ({ { type, 1 } }, area);
             const auto bounds = alphaBounds (img);
@@ -116,6 +117,61 @@ int main()
         if (stripBounds)
             ok (containsRect (juce::Rectangle<int> (20, 10, 120, 30).expanded (3), *stripBounds),
                 "the strip stays inside its bounds at full cell size");
+    }
+
+    group ("every device type and every shape names a catalogue glyph");
+    {
+        for (const auto type : { DeviceType::tube, DeviceType::bjt, DeviceType::fet, DeviceType::dsp, DeviceType::ic,
+                                 DeviceType::diode, DeviceType::transformer, DeviceType::tape })
+            ok (! glyphpaths::find (deviceGlyphKey (type)).empty(),
+                "device type " + std::to_string ((int) type) + " has geometry");
+        ok (deviceGlyphKey (DeviceType::none).empty(), "none names no glyph");
+        for (const auto s : { ShapeGlyph::tanh, ShapeGlyph::atan, ShapeGlyph::cubic, ShapeGlyph::asym })
+            ok (! glyphpaths::find (shapeGlyphKey (s)).empty(),
+                std::string (shapeGlyphKey (s)) + " has geometry");
+    }
+
+    group ("all twelve catalogue glyphs draw, stay in their cell, and differ from one another");
+    {
+        // A glyph is drawn into a cell reduced by 12 %, as drawDeviceSpecStatic does; leads reach 8 %
+        // past the frame, so the ink must stay inside the unreduced cell.
+        const juce::Rectangle<float> cell { 20.0f, 10.0f, 40.0f, 40.0f };
+        std::vector<juce::Image> drawn;
+        for (const auto& gl : glyphpaths::all)
+        {
+            juce::Image img (juce::Image::ARGB, 80, 60, true);
+            {
+                juce::Graphics g (img);
+                drawGlyph (g, cell.reduced (cell.getWidth() * 0.12f), gl.key, juce::Colours::white);
+            }
+            const auto bounds = alphaBounds (img);
+            const std::string key (gl.key);
+            ok (bounds.has_value(), key + " puts ink down");
+            if (bounds)
+                ok (containsRect (cell.getSmallestIntegerContainer().expanded (1), *bounds), key + " stays in its cell");
+            drawn.push_back (img);
+        }
+
+        // Pairwise: two keys wired to the same geometry would draw identical images.
+        int identical = 0;
+        for (size_t i = 0; i < drawn.size(); ++i)
+            for (size_t j = i + 1; j < drawn.size(); ++j)
+            {
+                int differing = 0;
+                for (int y = 0; y < 60; ++y)
+                    for (int x = 0; x < 80; ++x)
+                        differing += drawn[i].getPixelAt (x, y).getAlpha() != drawn[j].getPixelAt (x, y).getAlpha() ? 1 : 0;
+                identical += differing < 20 ? 1 : 0;
+            }
+        ok (identical == 0, "no two catalogue glyphs draw (nearly) the same picture");
+
+        juce::Image blank (juce::Image::ARGB, 80, 60, true);
+        {
+            juce::Graphics g (blank);
+            drawGlyph (g, cell, "no-such-glyph", juce::Colours::white);
+            drawDeviceGlyph (g, cell, DeviceType::none, juce::Colours::white);
+        }
+        ok (! alphaBounds (blank).has_value(), "an unknown key and DeviceType::none draw nothing");
     }
 
     std::printf ("%d checks, %d failures\n%s\n", checks, failures, failures == 0 ? "ALL TESTS PASSED" : "FAILED");

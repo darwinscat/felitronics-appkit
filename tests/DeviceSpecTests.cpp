@@ -43,6 +43,11 @@ int main()
     ok (deviceFromString ("ic")    == DeviceType::ic,    "ic");
     ok (deviceFromString ("dsp")   == DeviceType::dsp,   "dsp");
     ok (deviceFromString ("diode") == DeviceType::diode, "diode");
+    ok (deviceFromString ("transformer") == DeviceType::transformer, "transformer");
+    ok (deviceFromString ("tape")        == DeviceType::tape,        "tape");
+    // Appended, not inserted: a stored value of an older type keeps its meaning.
+    ok (static_cast<int> (DeviceType::ic) == 6 && static_cast<int> (DeviceType::transformer) == 7
+            && static_cast<int> (DeviceType::tape) == 8, "the enum grew at its end only");
     // An analogue op-amp is NOT a DSP: a Tube Screamer's 4558 clips IN the audio path, a Boss GT
     // converts, computes and converts back. They share a package and nothing else.
     ok (deviceFromString ("ic")    != DeviceType::dsp,   "ic is not an alias for dsp any more");
@@ -52,7 +57,8 @@ int main()
     ok (deviceFromString ("npn") == DeviceType::bjt, "npn -> bjt");
 
     group ("deviceFromString: the dropped aliases now read as unknown");
-    for (const char* dead : { "valve", "transistor", "jfet", "mosfet", "chip", "digital", "opamp", "op-amp" })
+    for (const char* dead : { "valve", "transistor", "jfet", "mosfet", "chip", "digital", "opamp", "op-amp",
+                              "xfmr", "iron", "reel", "tapes" })
         ok (deviceFromString (dead) == DeviceType::none, std::string (dead) + " -> none");
 
     group ("deviceFromString: case + whitespace fold; unknown -> none");
@@ -70,6 +76,9 @@ int main()
     expectSpec ("pnp:1,tube:1",  { { DeviceType::bjt, 1 }, { DeviceType::tube, 1 } },  "order is the spec's, not sorted");
     expectSpec ("tube:2,tube:1", { { DeviceType::tube, 2 }, { DeviceType::tube, 1 } }, "repeated type stays two entries");
     expectSpec ("diode,dsp:2",   { { DeviceType::diode, 1 }, { DeviceType::dsp, 2 } }, "bare + counted mix");
+    expectSpec ("tube:2, Transformer ,tape:1",
+                { { DeviceType::tube, 2 }, { DeviceType::transformer, 1 }, { DeviceType::tape, 1 } },
+                "the new types parse like the old ones, in order");
     expectSpec (" tube:1 , pnp:2 ", { { DeviceType::tube, 1 }, { DeviceType::bjt, 2 } }, "whitespace around tokens tolerated");
     expectSpec ("tube : 2",      { { DeviceType::tube, 2 } },                          "whitespace around the colon tolerated");
     expectSpec ("TUBE:2",        { { DeviceType::tube, 2 } },                          "type is case-folded");

@@ -121,6 +121,15 @@ target_compile_features(appkit_update_compare_falsify_tests PRIVATE cxx_std_20)
 target_compile_options(appkit_update_compare_falsify_tests PRIVATE ${APPKIT_STRICT_FLAGS})
 add_test(NAME appkit_update_compare_falsify_tests COMMAND appkit_update_compare_falsify_tests)
 
+# The glyph geometry's two outputs (DeviceGlyphPaths.h for JUCE, assets/glyphs/*.svg for the web)
+# agree, and the SVGs stay inside what both readers take. JUCE-free: runs in every CI row.
+add_executable(appkit_glyph_assets_tests tests/GlyphAssetsTests.cpp)
+target_link_libraries(appkit_glyph_assets_tests PRIVATE felitronics::appkit)
+target_compile_features(appkit_glyph_assets_tests PRIVATE cxx_std_20)
+target_compile_options(appkit_glyph_assets_tests PRIVATE ${APPKIT_STRICT_FLAGS})
+target_compile_definitions(appkit_glyph_assets_tests PRIVATE APPKIT_GLYPH_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/glyphs")
+add_test(NAME appkit_glyph_assets_tests COMMAND appkit_glyph_assets_tests)
+
 # --- JUCE tier: UpdateChecker.h through a real consumer's compiler flags ----------------------------
 if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
     include(FetchContent)
@@ -409,6 +418,24 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
         target_compile_options(appkit_device_glyph_falsify_tests PRIVATE -Werror)
     endif()
     add_test(NAME appkit_device_glyph_falsify_tests COMMAND appkit_device_glyph_falsify_tests)
+
+    # The shared-geometry glyphs against the procedural 0.10.0 code they replaced (tests/legacy/),
+    # rendered at 16 / 26 / 44 px.
+    add_executable(appkit_device_glyph_parity_tests tests/DeviceGlyphParityTests.cpp)
+    target_link_libraries(appkit_device_glyph_parity_tests PRIVATE
+        felitronics::appkit
+        juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_device_glyph_parity_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_device_glyph_parity_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_device_glyph_parity_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_device_glyph_parity_tests COMMAND appkit_device_glyph_parity_tests)
 
     add_executable(appkit_mic_grid_falsify_tests tests/MicGridFalsifyTests.cpp)
     target_link_libraries(appkit_mic_grid_falsify_tests PRIVATE

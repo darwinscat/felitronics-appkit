@@ -14,6 +14,8 @@
 //               ic    ← ic                     ; analogue op-amp
 //               dsp   ← dsp                    ; digital
 //               diode ← diode
+//               transformer ← transformer
+//               tape  ← tape
 //             (anything else ⇒ the family is `none`)
 //   count  := the leading integer of the text after ":" (JUCE getIntValue); absent ⇒ 1
 //
@@ -69,6 +71,8 @@ static const char* canonicalName (DeviceType t)
         case DeviceType::ic:    return "ic";
         case DeviceType::dsp:   return "dsp";
         case DeviceType::diode: return "diode";
+        case DeviceType::transformer: return "transformer";
+        case DeviceType::tape:  return "tape";
         case DeviceType::none:  break;
     }
     return "none";
@@ -148,10 +152,10 @@ static juce::String randomFuzzString()
 {
     static const std::vector<juce::String> atoms = {
         // the closed vocabulary, plus the two legacy bjt spellings still accepted
-        "tube", "bjt", "pnp", "npn", "fet", "ic", "dsp", "diode",
+        "tube", "bjt", "pnp", "npn", "fet", "ic", "dsp", "diode", "transformer", "tape",
         // near-misses / unknowns — including the aliases that USED to be accepted, so the fuzz keeps
         // exercising them now that they must parse to none
-        "tubes", "bogus", "xyz", "TUBE", "NpN", " valve ",
+        "tubes", "bogus", "xyz", "TUBE", "NpN", " valve ", "tapes", "xfmr",
         "valve", "transistor", "jfet", "mosfet", "chip", "digital", "opamp", "op-amp",
         // counts and malformed counts
         ":1", ":4", ":12", ":99", ":0", ":-3", ":2.9", ":x", ":", ":999999999999999999999",
@@ -224,6 +228,8 @@ int main()
             { "ic:2",       DeviceType::ic,    2 },
             { "dsp:7",      DeviceType::dsp,   7 },
             { "diode:1",    DeviceType::diode, 1 },
+            { "TRANSFORMER:3", DeviceType::transformer, 3 },
+            { " tape ",     DeviceType::tape,  1 },
         };
         const std::vector<juce::String> invalids = {
             "bogus", "bogus:3", "tube:0", "tube:-2", ":5", "fet:x", "tubes:2", "", "   ",
@@ -264,7 +270,9 @@ int main()
     group ("round-trip: render a valid spec canonically, parse it back, get the same spec");
     {
         const DeviceType families[] = { DeviceType::tube, DeviceType::bjt, DeviceType::fet,
-                                        DeviceType::dsp, DeviceType::diode };
+                                        DeviceType::ic, DeviceType::dsp, DeviceType::diode,
+                                        DeviceType::transformer, DeviceType::tape };
+        constexpr int nFamilies = (int) (sizeof (families) / sizeof (families[0]));
         bool allGood = true;
         juce::String firstBad;
         for (int iter = 0; iter < 4000 && allGood; ++iter)
@@ -272,7 +280,7 @@ int main()
             DeviceSpec spec;
             const int n = 1 + roll (8);
             for (int k = 0; k < n; ++k)
-                spec.push_back ({ families[(size_t) roll (5)], 1 + roll (kMaxDeviceGlyphs) });
+                spec.push_back ({ families[(size_t) roll (nFamilies)], 1 + roll (kMaxDeviceGlyphs) });
 
             juce::String rendered;
             for (size_t k = 0; k < spec.size(); ++k)
