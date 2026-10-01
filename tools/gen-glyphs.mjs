@@ -10,7 +10,8 @@
 //
 // The frame: viewBox 0 0 100 100, centre (50, 50), R = 50, envelope radius ER = 0.82 R. Leads reach
 // past the box (to 1.16 R for the enveloped glyphs, 1.06 R for the others), as the procedural JUCE
-// glyphs always did; a drawer that clips to the cell must pad it by 8 %.
+// glyphs always did, and a round cap adds half a stroke beyond the tip; a drawer that clips to the
+// cell must inset the frame by 12 % of the cell on every edge (8 % lets the caps out).
 //
 // A glyph is an ordered list of PATHS. The drawer strokes each path separately, in order, in one
 // colour, with round caps and joins, at max(1 px, 0.11 R) where R is half the drawn cell's shorter

@@ -174,6 +174,35 @@ int main()
         ok (! alphaBounds (blank).has_value(), "an unknown key and DeviceType::none draw nothing");
     }
 
+    group ("the documented 12 % inset keeps the round caps inside a large cell; 8 % does not");
+    {
+        // A lead tip sits up to 8 frame units past the 100 x 100 box and its round cap adds half the
+        // stroke (0.11 R = 5.5 units, half 2.75), so ink reaches 10.75 % of the frame's side past it.
+        // Inset by a fraction f of the cell on every side, the frame is (1 - 2f) of the cell, so the
+        // ink stays in only when 0.1075 (1 - 2f) <= f, i.e. f >= 0.0885. At 8 % a cap pokes out by
+        // ~1 % of the cell — 2 px at 200 px, past the 1 px antialiasing allowance; at 12 % it keeps
+        // ~4 % of the cell to spare.
+        const juce::Rectangle<float> cell { 20.0f, 20.0f, 200.0f, 200.0f };
+        const auto inCell = cell.getSmallestIntegerContainer().expanded (1);
+        int leaksAt12 = 0, leaksAt8 = 0;
+        for (const auto& gl : glyphpaths::all)
+            for (const float inset : { 0.12f, 0.08f })
+            {
+                juce::Image img (juce::Image::ARGB, 240, 240, true);
+                {
+                    juce::Graphics g (img);
+                    drawGlyph (g, cell.reduced (cell.getWidth() * inset), gl.key, juce::Colours::white);
+                }
+                const auto bounds = alphaBounds (img);
+                const bool leaks = ! bounds || ! containsRect (inCell, *bounds);
+                (inset > 0.1f ? leaksAt12 : leaksAt8) += leaks ? 1 : 0;
+                if (inset > 0.1f)
+                    ok (! leaks, std::string (gl.key) + " stays in a 200 px cell inset by 12 %");
+            }
+        ok (leaksAt8 > 0, "an 8 % inset lets a round cap out of a 200 px cell (the 12 % is not arbitrary)");
+        std::printf ("    200 px cell: %d glyphs leave it at 12 %% inset, %d at 8 %%\n", leaksAt12, leaksAt8);
+    }
+
     std::printf ("%d checks, %d failures\n%s\n", checks, failures, failures == 0 ? "ALL TESTS PASSED" : "FAILED");
     return failures == 0 ? 0 : 1;
 }

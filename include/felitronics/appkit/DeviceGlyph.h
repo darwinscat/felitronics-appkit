@@ -60,7 +60,9 @@ namespace detail
 // Draw the catalogue glyph named `key` (see DeviceGlyphPaths.h / assets/glyphs/) inside `r`, stroked
 // in `c`. The 100 x 100 frame maps onto the square of side min(w, h) centred in `r`; the stroke is
 // max(1 px, 0.11 R) with R half that side, round caps and joins, each catalogue path stroked on its
-// own. Leads reach up to 8 % past the square, so callers pass a cell already reduced by that much.
+// own. Leads reach up to 8 % past the square and the round caps half a stroke beyond that, so callers
+// pass a cell already inset by at least 12 % of its side on every edge, as the rows below do (8 % lets the caps
+// out by about 1 % of the cell).
 // An unknown key draws nothing.
 inline void drawGlyph (juce::Graphics& g, juce::Rectangle<float> r, std::string_view key, juce::Colour c)
 {

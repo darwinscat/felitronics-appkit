@@ -37,6 +37,16 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+      # The glyph SVGs and DeviceGlyphPaths.h are generator output (README, "Glyphs outside JUCE"):
+      # re-run the generator and fail if the committed files differ from what it writes now, so an
+      # edited generator that was not re-run cannot merge. One row is enough; Ubuntu ships node.
+      - name: Generated glyphs match the generator
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          node tools/gen-glyphs.mjs
+          git status --porcelain -- assets/glyphs include/felitronics/appkit/DeviceGlyphPaths.h
+          git diff --exit-code -- assets/glyphs include/felitronics/appkit/DeviceGlyphPaths.h
+          test -z "$(git status --porcelain -- assets/glyphs include/felitronics/appkit/DeviceGlyphPaths.h)"
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DFELITRONICS_APPKIT_TESTS_WITH_JUCE=${{ matrix.juce }}
       - name: Build

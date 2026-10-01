@@ -43,8 +43,9 @@ own binary: `juce_add_binary_data(MyAssets SOURCES ${felitronics_appkit_SOURCE_D
 
 The device and shape glyphs are one geometry with two readers. `tools/gen-glyphs.mjs` (Node, no
 dependencies: `node tools/gen-glyphs.mjs`) writes both `assets/glyphs/<key>.svg` and
-`include/felitronics/appkit/DeviceGlyphPaths.h`; `appkit_glyph_assets_tests` fails if they disagree.
-Change a glyph in the generator, never in either output.
+`include/felitronics/appkit/DeviceGlyphPaths.h`; `appkit_glyph_assets_tests` fails if they disagree,
+and CI re-runs the generator and fails if the committed outputs differ from what it writes. Change a
+glyph in the generator, never in either output, and commit what it writes.
 
 Keys: `tube` `bjt` `fet` `ic` `dsp` `diode` `transformer` `tape` (one per `DeviceType`) and
 `shape-tanh` `shape-atan` `shape-cubic` `shape-asym`.
@@ -64,12 +65,19 @@ for (const d of paths) ctx.stroke(new Path2D(d));  // each path separately, in f
 ctx.restore();
 ```
 
-Leads reach up to 8 % past the 100 × 100 box, so draw into a cell reduced by that much or do not
-clip. Nothing is filled. Stroke the paths one at a time: a closed ring and an open lead that crosses
-it are kept in separate paths because one stroked path is filled non-zero and the crossing would
-cancel. The files are AGPL-3.0-or-later like the rest of this repo; each carries the
+Leads reach up to 8 % past the 100 × 100 box, and a round cap adds half the stroke (2.75 units)
+beyond the tip, so ink lands up to 10.75 % of the frame's side outside it. Inset the cell by 12 % of
+its side on every edge before mapping the frame onto it (or do not clip): that is what the built-in
+rows and the tests use, it holds the caps with about 4 % of the cell to spare, and the 8 % the leads
+alone suggest lets the caps out by about 1 % of the cell. Nothing is filled. Stroke the paths one at
+a time: a closed ring and an open lead that crosses it are kept in separate paths because one stroked
+path is filled non-zero and the crossing would cancel.
+
+The files are AGPL-3.0-or-later like the rest of this repo; each carries the
 `SPDX-License-Identifier: AGPL-3.0-or-later` line and the copyright line in a leading comment — keep
-both when vendoring.
+both when vendoring. An SVG here is generated output, not source: a third party that ships the files
+ships the licence text (`LICENSE`) alongside them, and their Corresponding Source is the generator,
+`tools/gen-glyphs.mjs` — point to it at the tag the files came from.
 
 Consumers subclass `UpdateChecker` as a thin adapter that bakes in their `Config` (repo slug,
 product name, version string, settings accessor, legacy settings keys).
