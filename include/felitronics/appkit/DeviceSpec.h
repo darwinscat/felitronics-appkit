@@ -25,9 +25,14 @@ namespace felitronics::appkit
 // `ic` was an alias for `dsp` before the split. Existing specs that say "ic" now read as ANALOGUE —
 // which is what the word almost always meant for the pedals this describes; a caller that really
 // means digital has "dsp" and "digital".
-enum class DeviceType { none, tube, bjt, fet, dsp, diode, ic };
+//
+// The list is APPEND-ONLY: a consumer may have stored a value, so a new type goes at the end.
+// `transformer` and `tape` joined for the saturation stages that model them (an iron transformer, a
+// tape machine) — no capture contains one, but a product that names its saturation types draws them
+// with the same glyph row.
+enum class DeviceType { none, tube, bjt, fet, dsp, diode, ic, transformer, tape };
 
-// The vocabulary is CLOSED: tube · bjt · fet · ic · dsp · diode, one spelling each. It is written by
+// The vocabulary is CLOSED: tube · bjt · fet · ic · dsp · diode · transformer · tape, one spelling each. It is written by
 // the capture tool, not typed by a person, so a forgiving parser buys nothing and costs ambiguity —
 // "ic" used to be an accepted spelling of "dsp", which is exactly how an analogue op-amp and a
 // digital box ended up drawn as the same part.
@@ -43,6 +48,8 @@ inline DeviceType deviceFromString (const juce::String& s)
     if (l == "ic")                                return DeviceType::ic;
     if (l == "dsp")                               return DeviceType::dsp;
     if (l == "diode")                             return DeviceType::diode;
+    if (l == "transformer")                       return DeviceType::transformer;
+    if (l == "tape")                              return DeviceType::tape;
     return DeviceType::none;
 }
 

@@ -16,8 +16,9 @@ Header-only. The CMake target adds an include path and nothing else — **the co
 | `felitronics/appkit/UpdateChecker.h` | `juce_events`, `juce_data_structures` | The opt-in GitHub-release update check: user-click only (never on launch), owned worker thread joined on destruction, silent failure, badge persisted in the product's `PropertiesFile`. |
 | `felitronics/appkit/Brand.h` | `juce_gui_basics` | The Darwin's Cat identity, consolidated from the diverged orbitcab/orbit-capture copies: palette (`brand::violet/lilac/orange`), the orbit "target" mark (`drawOrbit`), the fixed 8-slot palette, the large-glyph `GearButton`. |
 | `felitronics/appkit/TextPrompt.h` | `juce_gui_basics` | One-line modal text prompt (OK/Enter · Cancel/Esc), brand-styled. |
-| `felitronics/appkit/DeviceSpec.h` | `juce_core` | The parsed "device" spec model — tube/BJT/FET/DSP/diode with counts, hybrids like `"tube:1,pnp:1"`; malformed input drops entries, never garbage. Pure data, unit-tested here. |
-| `felitronics/appkit/DeviceGlyph.h` | `juce_gui_basics` | Schematic device glyphs (triode, PNP, JFET, chip, diode) + the glowing `DeviceStrip` row, per-family stroke/glow colours. Moved verbatim from OrbitCab. |
+| `felitronics/appkit/DeviceSpec.h` | `juce_core` | The parsed "device" spec model — tube/BJT/FET/IC/DSP/diode/transformer/tape with counts, hybrids like `"tube:1,pnp:1"`; malformed input drops entries, never garbage. Pure data, unit-tested here. |
+| `felitronics/appkit/DeviceGlyph.h` | `juce_gui_basics` | Schematic device glyphs (triode, PNP, JFET, op-amp, chip, diode, transformer, tape reel) + the glowing `DeviceStrip` row, per-family stroke/glow colours; the four transfer-shape marks (`drawShapeGlyph`, `ShapeGlyph::tanh/atan/cubic/asym`); any catalogue glyph by key (`drawGlyph (g, r, "shape-atan", c)`). Drawn from `DeviceGlyphPaths.h`. |
+| `felitronics/appkit/DeviceGlyphPaths.h` | nothing (JUCE-free, generated) | The glyph geometry as SVG path strings (`glyphpaths::all`, `glyphpaths::find (key)`) — the same data as `assets/glyphs/*.svg`. |
 | `felitronics/appkit/Flicker.h` | `juce_core` | The shared one-pole "heater glow" shimmer kernel: two detuned sines + jitter, one-pole smoothed. Drives `DeviceStrip` (and OrbitCab's power-tube heaters) so the whole family flickers the same way. |
 | `felitronics/appkit/LevelMeter.h` | `juce_audio_basics`, `juce_gui_basics` | Thin vertical dBFS peak meter (from OrbitCab): instant-attack/smooth-release ballistics + peak-hold, zoomable range (`setRange`), scale ticks/labels. Fed on the message thread — a GUI timer (~30 Hz) reads the processor's atomic per-block peak and calls `setLevel`. Calibrator extras: `setGreenZone`/`zone` target corridor, `setClipCeiling` warn-band, `setRefLines` fixed grid, clickable clip lamp (`setClipLatched`/`onClipClick`). |
 | `felitronics/appkit/LevelHistory.h` | `juce_audio_basics`, `juce_gui_basics` | Scrolling peak-history strip (dBFS), generalized from OrbitCapture's MicHistory. `push` scrolls one column per GUI tick; visible window = `capacityTicks` / feed rate. Two overlays tint the trace: `setRefLines` (fixed dashed calibration grid, the primary surface) or `setGreenZone` (moving corridor); `setNoiseFloor` draws a room-quiet line, `setCurrentDb` a live corner readout, `setClipCeiling` full-height red bars for over-ceiling columns. `peakDb` holds ~1.5 s then decays. |
@@ -37,6 +38,38 @@ the command that regenerates it.
 The full originals still live in [`assets/`](assets/) for a product that wants the whole face in its
 own binary: `juce_add_binary_data(MyAssets SOURCES ${felitronics_appkit_SOURCE_DIR}/assets/Michroma-Regular.ttf …)`
 (`felitronics_appkit_SOURCE_DIR` is set by `FetchContent_MakeAvailable`).
+
+### Glyphs outside JUCE
+
+The device and shape glyphs are one geometry with two readers. `tools/gen-glyphs.mjs` (Node, no
+dependencies: `node tools/gen-glyphs.mjs`) writes both `assets/glyphs/<key>.svg` and
+`include/felitronics/appkit/DeviceGlyphPaths.h`; `appkit_glyph_assets_tests` fails if they disagree.
+Change a glyph in the generator, never in either output.
+
+Keys: `tube` `bjt` `fet` `ic` `dsp` `diode` `transformer` `tape` (one per `DeviceType`) and
+`shape-tanh` `shape-atan` `shape-cubic` `shape-asym`.
+
+A non-JUCE consumer (the website draws them on a canvas) vendors the SVG files as they are and
+draws each `<path d>` on its own — the file holds geometry only, no colour and no stroke width:
+
+```js
+// frame: viewBox 0 0 100 100 mapped onto a square of side 2R centred in the cell
+ctx.save();
+ctx.translate(cx - R, cy - R);
+ctx.scale(R / 50, R / 50);
+ctx.lineWidth = Math.max(1, 0.11 * R) * 50 / R;   // max(1 px, 0.11 R), in frame units
+ctx.lineCap = ctx.lineJoin = 'round';
+ctx.strokeStyle = colour;
+for (const d of paths) ctx.stroke(new Path2D(d));  // each path separately, in file order
+ctx.restore();
+```
+
+Leads reach up to 8 % past the 100 × 100 box, so draw into a cell reduced by that much or do not
+clip. Nothing is filled. Stroke the paths one at a time: a closed ring and an open lead that crosses
+it are kept in separate paths because one stroked path is filled non-zero and the crossing would
+cancel. The files are AGPL-3.0-or-later like the rest of this repo; each carries the
+`SPDX-License-Identifier: AGPL-3.0-or-later` line and the copyright line in a leading comment — keep
+both when vendoring.
 
 Consumers subclass `UpdateChecker` as a thin adapter that bakes in their `Config` (repo slug,
 product name, version string, settings accessor, legacy settings keys).
@@ -59,7 +92,7 @@ cmake -B build -DFELITRONICS_APPKIT_TESTS_WITH_JUCE=ON   # ON fetches JUCE for t
 cmake --build build -j && ctest --test-dir build
 ```
 
-The JUCE-free tier (`UpdateCompare`) always tests offline. The JUCE tier runs the `DeviceSpec`
+The JUCE-free tier (`UpdateCompare`, the glyph assets) always tests offline. The JUCE tier runs the `DeviceSpec`
 parsing unit and compiles every JUCE header under `juce_recommended_warning_flags` + `-Werror` —
 the exact flag class the products build with — then smoke-runs the gate without touching the
 network (pass `--live` to the binary manually for one real end-to-end GitHub check).
