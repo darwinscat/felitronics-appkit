@@ -88,8 +88,11 @@ inline juce::Drawable* catMark()
 // family's lockups do (the cat's whiskers want a little air).
 inline void drawCat (juce::Graphics& g, juce::Rectangle<float> area, float scale = 1.0f)
 {
+    // `scale` is a SIZE, so it is the BOX that shrinks. Drawable::drawWithin's last argument is an
+    // opacity: handed the scale, it drew the mark full size and that much transparent.
     if (auto* cat = catMark())
-        cat->drawWithin (g, area, juce::RectanglePlacement::centred, scale);
+        cat->drawWithin (g, area.withSizeKeepingCentre (area.getWidth() * scale, area.getHeight() * scale),
+                         juce::RectanglePlacement::centred, 1.0f);
 }
 
 // The wordmark face, decoded once per process. Null only if the embedded data is corrupt.
