@@ -202,7 +202,13 @@ public:
     // The same window, presented as an ABOUT dialog: centred on the editor, on a dimmed ground, with
     // a close cross — what a call-out stops being able to do once it carries a table. Click outside
     // or press Escape to dismiss. The badge OWNS it, so it cannot outlive the thing that cast it.
-    void showAbout();
+    //
+    // `over` is the component the dialog covers and is centred on. Left null it is the badge's
+    // top-level component — the whole window, which is right for an editor painted the ordinary way.
+    // An editor that renders through its own GPU surface has to name ITSELF: that surface lies over
+    // everything in the window that is not its own child, and a dialog hung on the window opens
+    // underneath it, where nobody will ever see it.
+    void showAbout (juce::Component* over = nullptr);
 
 private:
     // Rendered width of `s` in font `f` (dot position / hand layout in the popover).
@@ -1200,9 +1206,9 @@ inline void VersionBadge::showPopup()
     launchCallOut (*this, std::make_unique<Panel> (*this, config, format, brandTypeface));
 }
 
-inline void VersionBadge::showAbout()
+inline void VersionBadge::showAbout (juce::Component* over)
 {
-    auto* top = getTopLevelComponent();
+    auto* top = over != nullptr ? over : getTopLevelComponent();
     if (top == nullptr || top == this)
     {
         showPopup();          // nothing to centre on — fall back to the call-out
