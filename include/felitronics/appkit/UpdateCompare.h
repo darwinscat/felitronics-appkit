@@ -98,4 +98,48 @@ namespace felitronics::appkit::update
         if (r.minor != l.minor) return r.minor > l.minor;
         return r.patch > l.patch;
     }
+
+    //==========================================================================
+    // ONE REPOSITORY, SEVERAL PRODUCTS. A repository that releases more than one product tells
+    // them apart by a prefix on the tag — "catpit-v0.1.0" beside the plain "v0.8.0". GitHub's
+    // "latest release" is then whichever product shipped last, which is no answer to "is there a
+    // newer build of MINE". The two below answer that from the LIST of releases instead.
+
+    // The version part of `tag` when the tag is this product's — the prefix, then a clean release
+    // ("catpit-" + "v0.1.0") — and empty otherwise. The prefix must be followed by something: a
+    // tag that IS the prefix is nobody's release. An empty prefix accepts any clean release tag.
+    constexpr std::string_view versionOfTag (std::string_view tag, std::string_view prefix) noexcept
+    {
+        if (tag.size() <= prefix.size() || tag.substr (0, prefix.size()) != prefix)
+            return {};
+        const std::string_view rest = tag.substr (prefix.size());
+        return isCleanRelease (rest) ? rest : std::string_view {};
+    }
+
+    // A release as the list gives it, reduced to what choosing one needs. `published` is false for
+    // a draft or a flagged pre-release — neither is an update to offer.
+    struct Listed { std::string_view tag; bool published = true; };
+
+    // The index of the HIGHEST of this product's published releases in `listed`, or -1 when it has
+    // none there. Highest by version, not first in the list: the list is in order of creation, and
+    // a patch to an older line is created after a newer one.
+    template <typename Range>
+    constexpr int highestOf (const Range& listed, std::string_view prefix) noexcept
+    {
+        int best = -1, index = 0;
+        std::string_view bestVersion;
+        for (const auto& entry : listed)
+        {
+            const std::string_view version = entry.published ? versionOfTag (entry.tag, prefix) : std::string_view {};
+            const Semver v = parseSemver (version);
+            const bool usable = ! version.empty() && (v.major != 0 || v.minor != 0 || v.patch != 0);
+            if (usable && (best < 0 || remoteIsNewer (bestVersion, version)))
+            {
+                best = index;
+                bestVersion = version;
+            }
+            ++index;
+        }
+        return best;
+    }
 }
