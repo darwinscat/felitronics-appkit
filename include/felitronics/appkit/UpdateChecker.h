@@ -8,7 +8,9 @@
 #include <felitronics/appkit/UpdateCompare.h>           // the pure, JUCE-free compare rule (ctest-covered)
 
 #include <functional>
+#include <string>
 #include <utility>                                      // std::exchange
+#include <vector>
 
 //==============================================================================
 // felitronics::appkit::UpdateChecker — the shared, opt-in GitHub-release update check, consolidated
@@ -24,6 +26,8 @@
 //
 // Contract:
 //   GET https://api.github.com/repos/<Config::ownerRepo>/releases/latest
+//       (or, with Config::tagPrefix set, .../releases?per_page=20 — the list, from which this
+//        product's highest published release is taken and then read exactly like the object below)
 //   200 -> { tag_name: "vX.Y.Z", html_url, name, … } — we read tag_name (strip 'v'), REQUIRE it to
 //          be a clean release tag (see fetch()), compare it to Config::currentVersion
 //          (UpdateCompare), and expose html_url as the release page (falling back to the canonical
@@ -55,6 +59,15 @@ public:
         // GitHub "<owner>/<repo>" slug, e.g. "darwinscat/orbitcab". Drives both the API URL and the
         // canonical releases page. REQUIRED.
         juce::String ownerRepo;
+
+        // For a repository that releases MORE THAN ONE product: this product's tag prefix, e.g.
+        // "catpit-" for tags like "catpit-v0.1.0". Left empty — one product, one repository — the
+        // check asks for the repository's latest release, as it always has. Set, it asks for the
+        // list instead and takes the highest published release whose tag wears the prefix
+        // (update::highestOf): "latest" in such a repository is whichever product shipped last.
+        // Only the newest page of the list is read; a product that has not released within it finds
+        // nothing, which is the same silent failure as any other.
+        juce::String tagPrefix;
 
         // Display name, e.g. "TabbyEQ" — the worker-thread name and the User-Agent token (spaces
         // stripped there: a UA product token can't contain them, and GitHub 403s UA-less requests).
@@ -221,7 +234,11 @@ public:
 
     // The canonical release-page URL — the badge's click-through when a stored tag exists but no
     // html_url was saved, and fetch()'s fallback when the response lacks one.
-    juce::String releasesPageUrl() const { return "https://github.com/" + config.ownerRepo + "/releases/latest"; }
+    // (With a tag prefix "latest" is somebody else's, so the fallback is the list.)
+    juce::String releasesPageUrl() const
+    {
+        return "https://github.com/" + config.ownerRepo + (config.tagPrefix.isEmpty() ? "/releases/latest" : "/releases");
+    }
 
 private:
     juce::PropertiesFile* store() const { return config.settings ? config.settings() : nullptr; }
@@ -268,7 +285,10 @@ private:
             "Accept: application/vnd.github+json\r\n"
             "X-GitHub-Api-Version: 2022-11-28";
 
-        juce::WebInputStream web (juce::URL ("https://api.github.com/repos/" + config.ownerRepo + "/releases/latest"),
+        // One product: the repository's latest release. Several: the newest page of its list.
+        const bool listed = config.tagPrefix.isNotEmpty();
+        juce::WebInputStream web (juce::URL ("https://api.github.com/repos/" + config.ownerRepo
+                                                 + (listed ? "/releases?per_page=20" : "/releases/latest")),
                                   false);
         web.withConnectionTimeout (config.connectTimeoutMs)
            .withNumRedirectsToFollow (3)
@@ -322,7 +342,38 @@ private:
         if (! juce::CharPointer_UTF8::isValidString (data, (int) raw.getSize()))
             return r;
 
-        const juce::var json = juce::JSON::parse (juce::String::fromUTF8 (data, (int) raw.getSize()));
+        juce::var json = juce::JSON::parse (juce::String::fromUTF8 (data, (int) raw.getSize()));
+
+        // The list: this product's highest published release is the one to read, and everything
+        // below treats it exactly as it treats the single object "latest" returns.
+        juce::String prefixedTag;
+        if (listed)
+        {
+            const auto* entries = json.getArray();
+            if (entries == nullptr)
+                return r;                           // not a list — a truncated body, or an error object
+
+            std::vector<std::string> tags;          // owns what the views below look at
+            tags.reserve ((size_t) entries->size());
+            for (const auto& e : *entries)
+                tags.push_back (e.getProperty ("tag_name", juce::var()).toString().trim().toStdString());
+
+            std::vector<update::Listed> list;
+            list.reserve (tags.size());
+            for (int i = 0; i < entries->size(); ++i)
+                list.push_back ({ tags[(size_t) i], ! (bool) entries->getReference (i).getProperty ("draft", false)
+                                                    && ! (bool) entries->getReference (i).getProperty ("prerelease", false) });
+
+            const std::string prefix = config.tagPrefix.toStdString();
+            const int chosen = update::highestOf (list, prefix);
+            if (chosen < 0)
+                return r;                           // this product has no release on the page — silent fail
+
+            const auto version = update::versionOfTag (tags[(size_t) chosen], prefix);
+            prefixedTag = juce::String (std::string (version));
+            json = juce::var (entries->getReference (chosen));
+        }
+
         if (! json.isObject())
             return r;                               // includes most truncated bodies — silent fail
 
@@ -331,7 +382,7 @@ private:
         // ("release-2026-07", "v1.2.4-rc1") must be a silent failure — reporting it as ok would
         // make handleAsyncUpdate's clearStored() wipe a previously stored REAL badge on the
         // strength of an unusable tag (crew finding). Stored/compared bare ('v' stripped).
-        const juce::String tag = stripV (json.getProperty ("tag_name", juce::var()).toString());
+        const juce::String tag = stripV (listed ? prefixedTag : json.getProperty ("tag_name", juce::var()).toString());
         if (tag.isEmpty() || ! update::isCleanRelease (tag.toStdString()))
             return r;
 

@@ -92,6 +92,36 @@ int main()
     expectNewer ("v0.1.0", "99999999999999999999.0.0", false, "hostile over-long remote is rejected (no overflow)");
     expectNewer ("v1234567.0.0",       "0.1.0",    true,  "hostile over-long local counts as dev < any release");
 
+    group ("versionOfTag: a tag is a product's when it wears the prefix and ends in a clean release");
+    ok (versionOfTag ("catpit-v0.1.0", "catpit-") == "v0.1.0", "prefixed tag gives its version");
+    ok (versionOfTag ("catpit-0.1.0",  "catpit-") == "0.1.0",  "the 'v' is optional after the prefix");
+    ok (versionOfTag ("v0.8.0",        "catpit-").empty(),     "the other product's plain tag is not ours");
+    ok (versionOfTag ("catpit-v0.1.0", "").empty(),            "with no prefix, a prefixed tag is not a clean release");
+    ok (versionOfTag ("v0.8.0",        "") == "v0.8.0",        "with no prefix, a plain clean tag is");
+    ok (versionOfTag ("catpit-",       "catpit-").empty(),     "a tag that IS the prefix is nobody's release");
+    ok (versionOfTag ("catpit-v0.1.0-rc1", "catpit-").empty(), "a pre-release spelling after the prefix is rejected");
+    ok (versionOfTag ("catpit-vv0.1.0", "catpit-").empty(),    "a doubled v after the prefix is rejected");
+    ok (versionOfTag ("xcatpit-v0.1.0", "catpit-").empty(),    "the prefix must lead the tag, not sit inside it");
+
+    group ("highestOf: this product's highest PUBLISHED release, wherever it sits in the list");
+    {
+        // GitHub's order is by creation, newest first — the other product shipped last, and a patch
+        // to our older line was created after our newer release.
+        const Listed mixed[] { { "v0.9.0" }, { "catpit-v0.1.3" }, { "catpit-v0.2.0" }, { "v0.8.0" }, { "catpit-v0.1.0" } };
+        ok (highestOf (mixed, "catpit-") == 2, "highest by version, not first in the list");
+        ok (highestOf (mixed, "")        == 0, "with no prefix: the plain tags only, and the highest of them");
+        ok (highestOf (mixed, "tabby-")  == -1, "a product with nothing in the list finds nothing");
+
+        const Listed hidden[] { { "catpit-v0.3.0", false }, { "catpit-v0.2.0" }, { "v0.9.0" } };
+        ok (highestOf (hidden, "catpit-") == 1, "a draft or pre-release is not an update to offer");
+
+        const Listed junk[] { { "catpit-v0.0.0" }, { "catpit-nightly" }, { "" }, { "catpit-v99999999.0.0" } };
+        ok (highestOf (junk, "catpit-") == -1, "zero, word and hostile over-long tags offer nothing");
+
+        const Listed none[] { { "v0.9.0", false } };
+        ok (highestOf (none, "") == -1, "nothing published, nothing chosen");
+    }
+
     std::printf ("%d checks, %d failures\n%s\n", checks, failures, failures == 0 ? "ALL TESTS PASSED" : "FAILED");
     return failures == 0 ? 0 : 1;
 }
