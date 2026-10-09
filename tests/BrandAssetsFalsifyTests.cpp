@@ -42,6 +42,29 @@ static int inkedPixels (int size)
     return inked;
 }
 
+// What a drawCat at `scale` leaves in a square box: how many pixels it inks, and how opaque its most
+// opaque pixel is.
+struct Drawn { int inked = 0; int peak = 0; };
+
+static Drawn drawnAt (int size, float scale)
+{
+    juce::Image img (juce::Image::ARGB, size, size, true);
+    {
+        juce::Graphics g (img);
+        brand::drawCat (g, juce::Rectangle<float> (0.0f, 0.0f, (float) size, (float) size), scale);
+    }
+
+    Drawn d;
+    for (int y = 0; y < size; ++y)
+        for (int x = 0; x < size; ++x)
+        {
+            const int a = img.getPixelAt (x, y).getAlpha();
+            if (a > 8) ++d.inked;
+            if (a > d.peak) d.peak = a;
+        }
+    return d;
+}
+
 int main()
 {
     std::printf ("BrandAssets — the identity the library carries\n");
@@ -65,6 +88,17 @@ int main()
         const int inked = inkedPixels (64);
         ok (inked > 300, "the mark actually inks a 64 px box (" + std::to_string (inked) + " px)");
         ok (inked < 64 * 64, "...and is not a solid block");
+    }
+
+    group ("drawCat's scale is a SIZE, not an opacity");
+    {
+        // The last argument of Drawable::drawWithin is an opacity. Handed the scale, it drew the mark
+        // full size and that much transparent — at the lockup's 0.94 nobody saw it; at 0.5 it is a ghost.
+        const Drawn full = drawnAt (128, 1.0f), half = drawnAt (128, 0.5f);
+        ok (full.peak >= 250, "a full-size mark is opaque (" + std::to_string (full.peak) + ")");
+        ok (half.peak >= 250, "a half-scale mark is just as opaque (" + std::to_string (half.peak) + ")");
+        ok (half.inked * 10 > full.inked && half.inked * 10 < full.inked * 4,
+            "...and inks about a quarter of the pixels (" + std::to_string (half.inked) + " of " + std::to_string (full.inked) + ")");
     }
 
     group ("the wordmark face decodes and measures");
