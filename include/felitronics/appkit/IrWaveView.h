@@ -151,6 +151,11 @@ public:
     // right two-thirds it zooms out (always more room to pull). Stays where the drag left it.
     bool trimServoZoom = true;
 
+    /** The line under the picture, short: the shot's length, its rate in kHz over its bits, "100ms 48/24" — no channels,
+        no bars between. Off, it reads "100ms  |  48.0kHz  |  24-bit  |  mono". Read as it paints, so it may be set at any
+        time. */
+    bool shortMetrics = false;
+
     /** How briskly the picture travels to a new window: the fraction of the remaining ratio it
         covers each tick, at 60 a second. Lower is slower and softer; 1.0 is the old jump.
         0.06 puts the bulk of the travel around a third of a second — a zoom you can watch happen
@@ -179,6 +184,7 @@ public:
         peaks.clear();
         waveAbs.clear();
         metrics.clear();
+        metricsShort.clear();
         trimFraction = 1.0f;
         irMs = 0.0;
         viewWindowMs = viewTargetMs = 0.0;
@@ -348,7 +354,7 @@ public:
 
         g.setColour (juce::Colour (0xffb0b0b0));
         g.setFont (juce::FontOptions (12.0f));
-        g.drawText (metrics, getLocalBounds().reduced (8).removeFromBottom (18),
+        g.drawText (shortMetrics ? metricsShort : metrics, getLocalBounds().reduced (8).removeFromBottom (18),
                     juce::Justification::bottomLeft, false);
 
         if (! isEnabled())
@@ -742,6 +748,11 @@ private:
                 + juce::String (sr / 1000.0, 1) + "kHz  |  "
                 + juce::String (reader->bitsPerSample) + "-bit  |  "
                 + (ch == 1 ? "mono" : ch == 2 ? "stereo" : juce::String (ch) + "ch");
+        // 48 for 48000, 44.1 for 44100: a tenth only where there is one.
+        const double khz = sr / 1000.0;
+        metricsShort = juce::String (juce::roundToInt (irMs)) + "ms "
+                     + (std::abs (khz - std::round (khz)) < 0.05 ? juce::String (juce::roundToInt (khz)) : juce::String (khz, 1))
+                     + "/" + juce::String (reader->bitsPerSample);
         repaint();
     }
 
@@ -749,7 +760,7 @@ private:
     std::vector<float>       peaks;
     std::vector<float>       waveAbs;        // mono max-abs of the whole shot — the window re-buckets from it
     juce::Colour             accent { 0xff7c4dff };
-    juce::String             metrics;
+    juce::String             metrics, metricsShort;
     float                    trimFraction    = 1.0f;
     bool                     ampLog          = true;
     float                    dbFloor         = -48.0f;
