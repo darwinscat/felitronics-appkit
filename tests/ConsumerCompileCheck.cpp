@@ -10,10 +10,12 @@
 #include <felitronics/appkit/AudioSettingsPanel.h>
 #include <felitronics/appkit/Brand.h>
 #include <felitronics/appkit/BrandHeader.h>
+#include <felitronics/appkit/BrandTextFace.h>
 #include <felitronics/appkit/Download.h>
 #include <felitronics/appkit/LevelHistory.h>
 #include <felitronics/appkit/LevelMeter.h>
 #include <felitronics/appkit/IconButton.h>
+#include <felitronics/appkit/IrWaveView.h>
 #include <felitronics/appkit/CallOut.h>
 #include <felitronics/appkit/DeviceGlyph.h>
 #include <felitronics/appkit/DeviceSpec.h>
@@ -79,6 +81,16 @@ int main (int argc, char** argv)
             "brand palette is distinct");
         ok (felitronics::appkit::brand::wordmarkFont (nullptr, 14.0f).getHeight() > 13.0f,
             "wordmarkFont: bold system fallback when the typeface is null");
+    }
+
+    // BrandTextFace.h / IrWaveView.h: no other TU includes them, so this is where they are gated to
+    // COMPILE clean under the consumer flag set, on every JUCE the CI builds against.
+    {
+        auto* face = &felitronics::appkit::brand::textTypeface; (void) face;
+        auto* font = &felitronics::appkit::brand::textFont;     (void) font;
+        felitronics::appkit::IrWaveView wave;
+        wave.setSize (200, 80);
+        ok (wave.getWidth() == 200, "IrWaveView constructs headless");
     }
 
     // LevelMeter: a plain Component — safe to construct and feed headless (no peer, so repaint()
