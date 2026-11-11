@@ -75,6 +75,10 @@ public:
     void setFill (const juce::FillType&) override {}
     void setOpacity (float) override {}
     void setInterpolationQuality (juce::Graphics::ResamplingQuality) override {}
+   #if JUCE_MAJOR_VERSION >= 9
+    // JUCE 9 adds Graphics::setImageBlendMode, a new pure virtual here; juce::BlendMode is new in 9.
+    void setImageBlendMode (juce::BlendMode) override {}
+   #endif
     void fillRect (const juce::Rectangle<int>&, bool) override {}
     void fillRect (const juce::Rectangle<float>& r) override
     {
