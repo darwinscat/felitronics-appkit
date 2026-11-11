@@ -90,6 +90,10 @@ option(FELITRONICS_APPKIT_BUILD_TESTS "Build felitronics-appkit self-tests" "${P
 # (fetches JUCE) — or point FELITRONICS_APPKIT_JUCE_SRC at a local JUCE checkout.
 option(FELITRONICS_APPKIT_TESTS_WITH_JUCE "Also build the JUCE consumer-compile gate for UpdateChecker.h" OFF)
 set(FELITRONICS_APPKIT_JUCE_SRC "" CACHE PATH "Optional path to a local JUCE source tree (skips the network fetch)")
+# Which JUCE the gate fetches. The headers build on both JUCE 8 and JUCE 9 while the family moves
+# product by product, so CI builds the gate against each: 8.0.17-security (the family's JUCE until
+# every product has moved) and 9.0.5. Ignored when FELITRONICS_APPKIT_JUCE_SRC is set.
+set(FELITRONICS_APPKIT_JUCE_TAG "8.0.17-security" CACHE STRING "JUCE git tag the JUCE test tier fetches")
 
 if(NOT FELITRONICS_APPKIT_BUILD_TESTS)
     return()
@@ -134,13 +138,17 @@ add_test(NAME appkit_glyph_assets_tests COMMAND appkit_glyph_assets_tests)
 if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
     include(FetchContent)
     if(FELITRONICS_APPKIT_JUCE_SRC)
+        message(STATUS "felitronics-appkit: JUCE from ${FELITRONICS_APPKIT_JUCE_SRC}")
         FetchContent_Declare(juce SOURCE_DIR "${FELITRONICS_APPKIT_JUCE_SRC}")
     else()
+        message(STATUS "felitronics-appkit: fetching JUCE ${FELITRONICS_APPKIT_JUCE_TAG}")
         FetchContent_Declare(juce
             GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
-            GIT_TAG        8.0.14)   # the family's pinned JUCE
+            GIT_TAG        ${FELITRONICS_APPKIT_JUCE_TAG})
     endif()
     FetchContent_MakeAvailable(juce)
+    get_directory_property(_appkit_juce_version DIRECTORY "${juce_SOURCE_DIR}" DEFINITION JUCE_VERSION)
+    message(STATUS "felitronics-appkit: building the JUCE tier against JUCE ${_appkit_juce_version}")
 
     add_executable(appkit_update_checker_falsify_tests tests/UpdateCheckerFalsifyTests.cpp)
     target_link_libraries(appkit_update_checker_falsify_tests PRIVATE

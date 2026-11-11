@@ -100,6 +100,10 @@ cmake -B build -DFELITRONICS_APPKIT_TESTS_WITH_JUCE=ON   # ON fetches JUCE for t
 cmake --build build -j && ctest --test-dir build
 ```
 
+The JUCE tier fetches JUCE `8.0.17-security` by default. The headers build on JUCE 9 as well:
+`-DFELITRONICS_APPKIT_JUCE_TAG=9.0.5` runs the same tier against it (CI runs both), and
+`-DFELITRONICS_APPKIT_JUCE_SRC=/path/to/JUCE` uses a local checkout instead of fetching.
+
 The JUCE-free tier (`UpdateCompare`, the glyph assets) always tests offline. The JUCE tier runs the `DeviceSpec`
 parsing unit and compiles every JUCE header under `juce_recommended_warning_flags` + `-Werror` —
 the exact flag class the products build with — then smoke-runs the gate without touching the
