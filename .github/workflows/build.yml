@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   tests:
-    name: ${{ matrix.os }}${{ matrix.juce == 'ON' && ' + JUCE gate' || '' }}
+    name: ${{ matrix.os }}${{ matrix.juce == 'ON' && format(' + JUCE {0} gate', matrix.juce_tag) || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -31,8 +31,13 @@ jobs:
             juce: "OFF"
           - os: windows-latest
             juce: "OFF"
+          # The JUCE gate on both JUCE lines while the family moves to 9 product by product.
           - os: macos-latest
             juce: "ON"
+            juce_tag: "8.0.17-security"
+          - os: macos-latest
+            juce: "ON"
+            juce_tag: "9.0.5"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -48,7 +53,7 @@ jobs:
           git diff --exit-code -- assets/glyphs include/felitronics/appkit/DeviceGlyphPaths.h
           test -z "$(git status --porcelain -- assets/glyphs include/felitronics/appkit/DeviceGlyphPaths.h)"
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DFELITRONICS_APPKIT_TESTS_WITH_JUCE=${{ matrix.juce }}
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DFELITRONICS_APPKIT_TESTS_WITH_JUCE=${{ matrix.juce }} -DFELITRONICS_APPKIT_JUCE_TAG=${{ matrix.juce_tag || '8.0.17-security' }}
       - name: Build
         run: cmake --build build --config Release -j 4
       - name: Test
