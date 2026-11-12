@@ -22,7 +22,8 @@ concurrency:
 
 jobs:
   tests:
-    name: ${{ matrix.os }}${{ matrix.juce == 'ON' && format(' + JUCE {0} gate', matrix.juce_tag) || '' }}
+    # The 8.0.17 row keeps the name main's branch protection requires, "macos-latest + JUCE gate"; the 9.0.5 row is named apart.
+    name: ${{ matrix.os }}${{ matrix.gate && format(' + {0}', matrix.gate) || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -35,9 +36,11 @@ jobs:
           - os: macos-latest
             juce: "ON"
             juce_tag: "8.0.17-security"
+            gate: "JUCE gate"
           - os: macos-latest
             juce: "ON"
             juce_tag: "9.0.5"
+            gate: "JUCE 9.0.5 gate"
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
