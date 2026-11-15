@@ -125,6 +125,13 @@ target_compile_features(appkit_update_compare_falsify_tests PRIVATE cxx_std_20)
 target_compile_options(appkit_update_compare_falsify_tests PRIVATE ${APPKIT_STRICT_FLAGS})
 add_test(NAME appkit_update_compare_falsify_tests COMMAND appkit_update_compare_falsify_tests)
 
+# The input picker's audio side, choice text and per-device memory (InputPick.h): JUCE-free, every CI row.
+add_executable(appkit_input_pick_tests tests/InputPickTests.cpp)
+target_link_libraries(appkit_input_pick_tests PRIVATE felitronics::appkit)
+target_compile_features(appkit_input_pick_tests PRIVATE cxx_std_20)
+target_compile_options(appkit_input_pick_tests PRIVATE ${APPKIT_STRICT_FLAGS})
+add_test(NAME appkit_input_pick_tests COMMAND appkit_input_pick_tests)
+
 # The glyph geometry's two outputs (DeviceGlyphPaths.h for JUCE, assets/glyphs/*.svg for the web)
 # agree, and the SVGs stay inside what both readers take. JUCE-free: runs in every CI row.
 add_executable(appkit_glyph_assets_tests tests/GlyphAssetsTests.cpp)
