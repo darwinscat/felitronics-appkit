@@ -15,6 +15,8 @@
 #include <felitronics/appkit/LevelHistory.h>
 #include <felitronics/appkit/LevelMeter.h>
 #include <felitronics/appkit/IconButton.h>
+#include <felitronics/appkit/InputList.h>
+#include <felitronics/appkit/InputPick.h>
 #include <felitronics/appkit/IrWaveView.h>
 #include <felitronics/appkit/CallOut.h>
 #include <felitronics/appkit/DeviceGlyph.h>
@@ -91,6 +93,25 @@ int main (int argc, char** argv)
         felitronics::appkit::IrWaveView wave;
         wave.setSize (200, 80);
         ok (wave.getWidth() == 200, "IrWaveView constructs headless");
+    }
+
+    // InputList.h / InputPick.h: the input picker, gated to COMPILE clean under the consumer flag set on every JUCE the
+    // CI builds against; the list constructs headless with a pick feeding it (its behaviour is InputPickTests').
+    {
+        felitronics::appkit::InputPick pick;
+        pick.choose (felitronics::appkit::InputChoice::paired (2, 3));
+        felitronics::appkit::InputList::Feed feed;
+        feed.lit = [&pick] (int i) { const auto c = pick.chosen(); return i == c.a || i == c.b; };
+        feed.tag = [&pick] (int i) { return i == pick.chosen().a ? juce::String ("L") : i == pick.chosen().b ? juce::String ("R") : juce::String(); };
+        feed.level = [&pick] (int i) { return pick.takeLevel (i); };
+        feed.picked = [&pick] (int i, const juce::ModifierKeys&) { pick.choose (felitronics::appkit::InputChoice::single (i)); };
+        felitronics::appkit::InputList list ("Scarlett 18i20 USB", 18, {}, feed);
+        ok (list.getWidth() > 3 * felitronics::appkit::InputList::colW && list.getHeight() > 6 * felitronics::appkit::InputList::rowH,
+            "InputList: 18 inputs in three columns of six");
+        juce::Image image (juce::Image::ARGB, 40, 8, true);
+        juce::Graphics g (image);
+        felitronics::appkit::drawInputMeter (g, { 0.0f, 0.0f, 40.0f, 6.0f }, 0.5f);
+        ok (image.getPixelAt (2, 3).getAlpha() > 0, "drawInputMeter draws");
     }
 
     // LevelMeter: a plain Component — safe to construct and feed headless (no peer, so repaint()
