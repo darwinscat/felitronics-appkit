@@ -38,6 +38,7 @@
 #include <felitronics/appkit/chrome/FlatButtons.h>
 #include <felitronics/appkit/chrome/PresetCell.h>
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <thread>
@@ -103,7 +104,10 @@ int main (int argc, char** argv)
         felitronics::appkit::InputList::Feed feed;
         feed.lit = [&pick] (int i) { const auto c = pick.chosen(); return i == c.a || i == c.b; };
         feed.tag = [&pick] (int i) { return i == pick.chosen().a ? juce::String ("L") : i == pick.chosen().b ? juce::String ("R") : juce::String(); };
-        feed.level = [&pick] (int i) { return pick.takeLevel (i); };
+        std::array<float, 18> held {};   // the app's meters, held and falling: what a GUI timer takes from the pick
+        for (int i = 0; i < 18; ++i)
+            held[(std::size_t) i] = std::max (pick.takeLevel (i), held[(std::size_t) i] * 0.85f);
+        feed.level = [&held] (int i) { return i >= 0 && i < 18 ? held[(std::size_t) i] : 0.0f; };
         feed.picked = [&pick] (int i, const juce::ModifierKeys&) { pick.choose (felitronics::appkit::InputChoice::single (i)); };
         felitronics::appkit::InputList list ("Scarlett 18i20 USB", 18, {}, feed);
         ok (list.getWidth() > 3 * felitronics::appkit::InputList::colW && list.getHeight() > 6 * felitronics::appkit::InputList::rowH,

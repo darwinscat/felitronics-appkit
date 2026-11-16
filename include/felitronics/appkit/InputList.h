@@ -13,6 +13,8 @@
 // Header-only; the consumer supplies JUCE (juce_gui_basics).
 //==============================================================================
 
+#include "InputPick.h"
+
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include <algorithm>
@@ -55,15 +57,26 @@ struct InputListStyle
 /** An input's meter: a bar from floorDb to full scale, meterFill, meterHot from hotDb. `level` is linear, 1 full scale. */
 inline void drawInputMeter (juce::Graphics& g, juce::Rectangle<float> r, float level, const InputListStyle& style = {})
 {
-    const float round = r.getHeight() * 0.5f;
+    const float radius = r.getHeight() * 0.5f;
     g.setColour (style.meterTrack);
-    g.fillRoundedRectangle (r, round);
+    g.fillRoundedRectangle (r, radius);
     const float db = level > 0.0f ? 20.0f * std::log10 (level) : -200.0f;
     const float share = juce::jlimit (0.0f, 1.0f, (db - style.floorDb) / (0.0f - style.floorDb));
     if (share <= 0.0f)
         return;
     g.setColour (db >= style.hotDb ? style.meterHot : style.meterFill);
-    g.fillRoundedRectangle (r.withWidth (std::max (r.getHeight(), r.getWidth() * share)), round);
+    g.fillRoundedRectangle (r.withWidth (std::max (r.getHeight(), r.getWidth() * share)), radius);
+}
+
+/** A device's open inputs (AudioIODevice::getActiveInputChannels) as InputPick::prepare and the fallbacks take them,
+    input k's bit set, up to InputChoice::maxInputs (BigInteger::toInt64 would drop the last). */
+inline std::uint64_t openInputBits (const juce::BigInteger& active)
+{
+    std::uint64_t bits = 0;
+    for (int ch = 0; ch < InputChoice::maxInputs; ++ch)
+        if (active[ch])
+            bits |= std::uint64_t (1) << ch;
+    return bits;
 }
 
 class InputList final : public juce::Component,
@@ -82,7 +95,8 @@ public:
     };
 
     InputList (juce::String deviceName, int inputs, InputListStyle styleToUse, Feed feedToUse)
-        : device (std::move (deviceName)), count (std::max (1, inputs)), style (std::move (styleToUse)), feed (std::move (feedToUse))
+        : device (std::move (deviceName)), count (std::clamp (inputs, 1, InputChoice::maxInputs)),   // as many as a choice can name
+          style (std::move (styleToUse)), feed (std::move (feedToUse))
     {
         columns = (count + perColumn - 1) / perColumn;
         rows = (count + columns - 1) / columns;
@@ -129,9 +143,13 @@ public:
         for (int i = 0; i < count; ++i)
             if (cellArea (i).contains (e.getPosition()))
             {
-                if (feed.picked != nullptr)
-                    feed.picked (i, e.mods);
-                repaint();
+                // The app may close the list from its click: the call made on a copy, nothing touched after if it did.
+                juce::Component::SafePointer<InputList> self (this);
+                if (const auto picked = feed.picked)
+                    picked (i, e.mods);
+                if (self != nullptr)
+                    repaint();
+                return;
             }
     }
 
