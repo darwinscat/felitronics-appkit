@@ -12,9 +12,9 @@
 //   InputChoice   one input, two summed at half each (an amp's L+R), or a pair (a STEREO amp's two takes); its text,
 //                 "4", "3+4", "3/4" (IN numbers), is what a store keeps; fittedTo() falls back to IN 1.
 //   InputPick     the audio side: every input of the device in, the choice out — one or a sum to every output, a pair
-//                 to the first two; every change crossfaded over 20 ms, so a switch never clicks; the peak of every
-//                 input kept for its meter, chosen or not. Real-time safe: no allocation, no lock; the choice and the
-//                 levels are atomics.
+//                 to the first two; every change crossfaded within 20 ms, from wherever the sound stands, so a switch
+//                 never clicks; the peak of every input kept for its meter, chosen or not. Real-time safe: no
+//                 allocation, no lock; the choice and the levels are atomics.
 //   InputMemory   the choice kept per device by its name — a workplace setting, never in a preset — read and written
 //                 through the app's own store (two functions: a JUCE PropertiesFile, say), as text. No file of its own.
 //
@@ -65,13 +65,31 @@ struct InputChoice
 
     /** Itself where the device has its inputs; else IN 1 — a sum or a pair of IN 1 and IN 2 where there are two, so a
         STEREO amp keeps its pair. */
-    constexpr InputChoice fittedTo (int numInputs) const noexcept
+    constexpr InputChoice fittedTo (int numInputs) const noexcept { return fittedTo (firstInputs (numInputs)); }
+
+    /** The same for a device that opened only some of its inputs (input k's bit set): itself where they are open; else
+        the first input open — the first two for a sum or a pair — so a fallback is never a closed input that plays
+        silence; IN 1 where none is open. */
+    constexpr InputChoice fittedTo (std::uint64_t openInputs) const noexcept
     {
-        if (fits (numInputs))
+        const auto open = [openInputs] (int in) { return in >= 0 && in < maxInputs && ((openInputs >> in) & 1u) != 0; };
+        if (open (a) && (kind == Kind::one || open (b)))
             return *this;
-        if (kind != Kind::one && numInputs >= 2)
-            return { kind, 0, 1 };
-        return single (0);
+        int first = -1, second = -1;
+        for (int in = 0; in < maxInputs && second < 0; ++in)
+            if (open (in))
+                (first < 0 ? first : second) = in;
+        if (first < 0)
+            return single (0);
+        if (kind != Kind::one && second >= 0)
+            return { kind, first, second };
+        return single (first);
+    }
+
+    /** The bits of a device's first `numInputs` inputs. */
+    static constexpr std::uint64_t firstInputs (int numInputs) noexcept
+    {
+        return numInputs <= 0 ? 0 : numInputs >= maxInputs ? ~std::uint64_t (0) : (std::uint64_t (1) << numInputs) - 1;
     }
 
     /** "4", "3+4" or "3/4": the IN numbers, from 1. */
@@ -113,32 +131,35 @@ struct InputChoice
     }
 };
 
-/** The audio side: the device's inputs in, the choice out. See the file's head. */
+/** The audio side: the device's inputs in, the choice out. See the file's head.
+
+    Every input reaches an output through a gain of its own, and every gain moves toward what the choice asks of it by
+    full scale in 20 ms at most: a change sounds as a crossfade wherever the sound stands, also halfway through the last
+    one, and is through within 20 ms. Three lanes: the first output, the second, and the rest (one input or a sum on all
+    three, a pair's two sides on the first two and silence on the rest). */
 class InputPick
 {
 public:
     static constexpr int maxInputs = InputChoice::maxInputs;
 
-    InputPick() noexcept
-    {
-        for (auto& l : levels)
-            l.store (0.0f, std::memory_order_relaxed);
-        prepare (48000.0, ~std::uint64_t (0));
-    }
+    InputPick() noexcept { prepare (48000.0, ~std::uint64_t (0)); }
 
-    /** What plays from now on, crossfaded in over 20 ms. Any thread. */
+    /** What plays from now on, crossfaded in within 20 ms. Any thread. */
     void choose (InputChoice c) noexcept { wanted.store (pack (c), std::memory_order_release); }
     InputChoice chosen() const noexcept { return unpack (wanted.load (std::memory_order_acquire)); }
 
     /** Before the device starts: its rate, and which of its inputs it opened — input k's bit set — since a device hands
-        process() the open ones alone, in order. The choice is taken as it stands, no fade. */
+        process() the open ones alone, in order. The choice is taken as it stands, no fade; the meters start empty. */
     void prepare (double sampleRate, std::uint64_t openInputs) noexcept
     {
         for (int ch = 0, slot = 0; ch < maxInputs; ++ch)
             slotOf[(std::size_t) ch] = ((openInputs >> ch) & 1u) != 0 ? slot++ : -1;
+        for (auto& l : levels)
+            l.store (0.0f, std::memory_order_relaxed);
         step = (float) (1.0 / (std::max (1.0, sampleRate) * fadeSeconds));
-        heard = chosen();
-        fading = false;
+        aim (chosen());
+        gain = target;
+        moving = 0;
     }
 
     /** Audio thread. `in` are the inputs the device hands over (numIn of them, as prepare() said), `out` the app's
@@ -150,40 +171,22 @@ public:
             return;
         measure (in, numIn, numSamples);
 
-        const auto want = chosen();
-        if (want != heard && ! fading)
-        {
-            leaving = heard;
-            heard = want;
-            fading = true;
-            fade = 0.0f;
-        }
-        // The way from what was to what is, the same for every output: `from` at the block's start, a step a sample.
-        const float from = fade;
-        for (int o = 0; o < numOut; ++o)
-        {
-            float* dst = out[o];
-            if (dst == nullptr)
-                continue;
-            const Source now = sourceOf (heard, o, in, numIn);
-            if (! fading)
-            {
-                for (int i = 0; i < numSamples; ++i)
-                    dst[i] = now.at (i);
-                continue;
-            }
-            const Source was = sourceOf (leaving, o, in, numIn);
-            for (int i = 0; i < numSamples; ++i)
-            {
-                const float f = std::min (1.0f, from + step * (float) (i + 1));
-                dst[i] = f * now.at (i) + (1.0f - f) * was.at (i);
-            }
-        }
-        if (fading)
-        {
-            fade = std::min (1.0f, from + step * (float) numSamples);
-            fading = fade < 1.0f;
-        }
+        if (const auto want = chosen(); want != aimedAt)
+            aim (want);
+
+        // The rest of the outputs share the third lane: the first of them is written, the others copy it.
+        float* rest = nullptr;
+        for (int o = 2; o < numOut && rest == nullptr; ++o)
+            rest = out[o];
+        float* const lanes[] { numOut > 0 ? out[0] : nullptr, numOut > 1 ? out[1] : nullptr, rest };
+        for (int lane = 0; lane < numLanes; ++lane)
+            mix (lane, lanes[lane], in, numIn, numSamples);
+        for (int o = 2; o < numOut; ++o)
+            if (out[o] != nullptr && out[o] != rest && rest != nullptr)
+                std::copy (rest, rest + numSamples, out[o]);
+        moving = std::max (0, moving - numSamples);
+        if (moving == 0)
+            gain = target;   // every gain where it was going, exactly
     }
 
     /** The loudest sample input `input` has had since the last ask (1 is full scale); nought for one not open. */
@@ -194,26 +197,88 @@ public:
 
 private:
     static constexpr double fadeSeconds = 0.02;
-
-    /** One output's signal from the inputs: up to two of them, each at its weight. */
-    struct Source
-    {
-        const float* x = nullptr;
-        const float* y = nullptr;
-        float wx = 0.0f, wy = 0.0f;
-
-        float at (int i) const noexcept
-        {
-            return (x != nullptr ? wx * x[i] : 0.0f) + (y != nullptr ? wy * y[i] : 0.0f);
-        }
-    };
+    static constexpr int numLanes = 3;
+    using Gains = std::array<std::array<float, maxInputs>, numLanes>;
 
     std::array<int, maxInputs> slotOf {};
     std::atomic<std::uint32_t> wanted { 0 };
-    std::array<std::atomic<float>, maxInputs> levels;
-    InputChoice heard, leaving;   // audio thread: what plays, and what it is crossfading from
-    bool fading = false;
-    float fade = 1.0f, step = 0.0f;
+    std::array<std::atomic<float>, maxInputs> levels {};
+    // Audio thread: each input's gain on each lane as it plays, where the choice wants it, the choice those are for,
+    // and how many samples until every gain is there.
+    Gains gain {}, target {};
+    InputChoice aimedAt;
+    int moving = 0;
+    float step = 0.0f;
+
+    void aim (InputChoice c) noexcept
+    {
+        aimedAt = c;
+        for (auto& lane : target)
+            lane.fill (0.0f);
+        const auto set = [this] (int lane, int input, float g)
+        {
+            if (input >= 0 && input < maxInputs)
+                target[(std::size_t) lane][(std::size_t) input] += g;
+        };
+        switch (c.kind)
+        {
+            case InputChoice::Kind::sum:
+                for (int lane = 0; lane < numLanes; ++lane)
+                {
+                    set (lane, c.a, 0.5f);
+                    set (lane, c.b, 0.5f);
+                }
+                break;
+            case InputChoice::Kind::pair:
+                set (0, c.a, 1.0f);
+                set (1, c.b, 1.0f);
+                break;
+            case InputChoice::Kind::one:
+                for (int lane = 0; lane < numLanes; ++lane)
+                    set (lane, c.a, 1.0f);
+                break;
+        }
+        moving = (int) std::ceil (1.0f / step) + 2;   // the longest way, nought to full scale, and samples to spare
+    }
+
+    static float toward (float now, float to, float by) noexcept { return now < to ? std::min (to, now + by) : std::max (to, now - by); }
+
+    /** One lane: its inputs, each at its gain, into `dst` (none: the gains still move, as if heard). */
+    void mix (int lane, float* dst, const float* const* in, int numIn, int numSamples) noexcept
+    {
+        auto& g = gain[(std::size_t) lane];
+        const auto& t = target[(std::size_t) lane];
+        std::array<int, maxInputs> live {};   // the inputs this lane hears or is leaving
+        int n = 0;
+        for (int ch = 0; ch < maxInputs; ++ch)
+            if (g[(std::size_t) ch] > 0.0f || t[(std::size_t) ch] > 0.0f)
+                live[(std::size_t) n++] = ch;
+
+        if (dst == nullptr)
+        {
+            for (int k = 0; k < n; ++k)
+            {
+                const auto ch = (std::size_t) live[(std::size_t) k];
+                g[ch] = toward (g[ch], t[ch], step * (float) numSamples);
+            }
+            return;
+        }
+        std::fill (dst, dst + numSamples, 0.0f);
+        for (int k = 0; k < n; ++k)
+        {
+            const auto ch = (std::size_t) live[(std::size_t) k];
+            const float* x = channel ((int) ch, in, numIn);
+            float now = g[ch];
+            const float to = t[ch];
+            for (int i = 0; i < numSamples; ++i)
+            {
+                now = toward (now, to, step);
+                if (x != nullptr)
+                    dst[i] += now * x[i];
+            }
+            g[ch] = now;
+        }
+    }
 
     static std::uint32_t pack (InputChoice c) noexcept
     {
@@ -234,22 +299,6 @@ private:
         return slot >= 0 && slot < numIn ? in[slot] : nullptr;
     }
 
-    Source sourceOf (const InputChoice& c, int output, const float* const* in, int numIn) const noexcept
-    {
-        switch (c.kind)
-        {
-            case InputChoice::Kind::sum:
-                return { channel (c.a, in, numIn), channel (c.b, in, numIn), 0.5f, 0.5f };
-            case InputChoice::Kind::pair:
-                if (output > 1)
-                    return {};
-                return { channel (output == 0 ? c.a : c.b, in, numIn), nullptr, 1.0f, 0.0f };
-            case InputChoice::Kind::one:
-                break;
-        }
-        return { channel (c.a, in, numIn), nullptr, 1.0f, 0.0f };
-    }
-
     void measure (const float* const* in, int numIn, int numSamples) noexcept
     {
         for (int ch = 0; ch < maxInputs; ++ch)
@@ -258,9 +307,12 @@ private:
                 float peak = 0.0f;
                 for (int i = 0; i < numSamples; ++i)
                     peak = std::max (peak, std::abs (x[i]));
+                // Raised, never lowered, also while the meters take it away: no peak lost between a look and a write.
                 auto& l = levels[(std::size_t) ch];
-                if (peak > l.load (std::memory_order_relaxed))
-                    l.store (peak, std::memory_order_relaxed);
+                float was = l.load (std::memory_order_relaxed);
+                while (peak > was && ! l.compare_exchange_weak (was, peak, std::memory_order_relaxed))
+                {
+                }
             }
     }
 };
@@ -282,8 +334,14 @@ struct InputMemory
         `otherwise`, fitted too. What is kept stays as it was, for the device's return. */
     InputChoice recall (const std::string& device, int numInputs, InputChoice otherwise = {}) const
     {
+        return recall (device, InputChoice::firstInputs (numInputs), otherwise);
+    }
+
+    /** ...for a device that opened only some of its inputs: fitted to those open. */
+    InputChoice recall (const std::string& device, std::uint64_t openInputs, InputChoice otherwise = {}) const
+    {
         const auto kept = read ? InputChoice::fromText (read (keyOf (device))) : std::nullopt;
-        return kept.value_or (otherwise).fittedTo (numInputs);
+        return kept.value_or (otherwise).fittedTo (openInputs);
     }
 
     void remember (const std::string& device, InputChoice c) const

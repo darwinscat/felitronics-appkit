@@ -2,8 +2,9 @@
 // Copyright (c) 2026 Darwin's Cat — Oleh Tsymaienko & Alisa Lafoks. Part of felitronics-appkit — see LICENSE.
 
 // InputPick.h, JUCE-free: the input chosen is what plays, also when the device hands over only some of its inputs; a
-// change is crossfaded over 20 ms with no step; a sum is the two at half each, a pair goes one to each output; every
-// open input is measured, a closed one reads nought; the text a store keeps reads back, junk does not; a choice whose
+// change is crossfaded over 20 ms with no step, and one made halfway through a crossfade is through 20 ms after it; a
+// sum is the two at half each, a pair goes one to each output, the outputs past the second follow; every open input is
+// measured, a closed one reads nought, and a new device starts the meters empty; the text a store keeps reads back, junk does not; a choice whose
 // inputs are gone falls back to IN 1; the memory keeps a device's choice by its name and reads the cab builders'
 // bare numbers as one input.
 
@@ -49,6 +50,8 @@ struct Rig
 
     Rig (std::uint64_t open, std::vector<float> levels) : levelOf (std::move (levels)) { pick.prepare (rate, open); }
 
+    std::vector<float> third;                      // the third output, when run with three
+
     void run (int samples, int outputs = 2)
     {
         std::vector<std::vector<float>> in (levelOf.size(), std::vector<float> ((std::size_t) block));
@@ -58,13 +61,14 @@ struct Rig
             std::fill (in[k].begin(), in[k].end(), levelOf[k]);
             ins.push_back (in[k].data());
         }
-        std::vector<float> l ((std::size_t) block), r ((std::size_t) block);
-        float* outs[] { l.data(), r.data() };
+        std::vector<float> l ((std::size_t) block), r ((std::size_t) block), t ((std::size_t) block);
+        float* outs[] { l.data(), r.data(), t.data() };
         for (int done = 0; done < samples; done += block)
         {
             pick.process (ins.data(), (int) ins.size(), outs, outputs, block);
             left.insert (left.end(), l.begin(), l.end());
             right.insert (right.end(), r.begin(), r.end());
+            third.insert (third.end(), t.begin(), t.end());
         }
     }
 
@@ -99,6 +103,16 @@ int main()
             between += rig.left[i] > 0.1001f && rig.left[i] < 0.3999f;
         ok (std::abs (between - fadeSamples) <= 2, "the crossfade takes 20 ms");
         ok (rig.pick.chosen() == InputChoice::single (3), "chosen() says what was chosen");
+
+        // IN 2 chosen, then IN 1 five milliseconds into that crossfade: IN 1 within 20 ms of its choice, no step on the way.
+        rig.pick.choose (InputChoice::single (1));
+        const auto turn = rig.left.size();
+        rig.run (block);                               // 5.3 ms of the way to IN 2
+        rig.pick.choose (InputChoice::single (0));
+        const auto again = rig.left.size();
+        rig.run (fadeSamples + block);
+        ok (near (rig.left[again + (std::size_t) fadeSamples + 1], 0.1f), "a choice made halfway through a crossfade is through 20 ms later");
+        ok (rig.biggestStep (rig.left, turn - 1) <= (0.4f + 0.2f + 0.1f) / (float) fadeSamples * 1.01f, "...with no step on the way");
     }
 
     group ("a sum: the two at half each; a pair: one to each output");
@@ -112,11 +126,21 @@ int main()
         const auto from = rig.left.size();
         rig.run (fadeSamples + 2 * block);
         ok (near (rig.left.back(), 0.3f) && near (rig.right.back(), 0.4f), "IN 3 / IN 4: IN 3 to the first output, IN 4 to the second");
-        ok (rig.biggestStep (rig.left, from - 1) <= 0.05f / (float) fadeSamples * 1.01f
-            && rig.biggestStep (rig.right, from - 1) <= 0.05f / (float) fadeSamples * 1.01f, "sum to pair has no step on either output");
+        ok (rig.biggestStep (rig.left, from - 1) <= (0.3f + 0.4f) / (float) fadeSamples * 1.01f
+            && rig.biggestStep (rig.right, from - 1) <= (0.3f + 0.4f) / (float) fadeSamples * 1.01f, "sum to pair has no step on either output");
         rig.pick.choose (InputChoice::single (0));
         rig.run (fadeSamples + 2 * block, 1);
         ok (near (rig.left.back(), 0.1f), "one output: the choice there alone");
+
+        // Three outputs: the third follows one input, falls silent, without a step, for a pair.
+        rig.run (block, 3);
+        ok (near (rig.third.back(), 0.1f), "the outputs past the second carry one input");
+        rig.pick.choose (InputChoice::paired (2, 3));
+        const auto split = rig.third.size();
+        rig.run (fadeSamples + 2 * block, 3);
+        ok (near (rig.third.back(), 0.0f) && near (rig.left.back(), 0.3f) && near (rig.right.back(), 0.4f),
+            "...and fall silent for a pair");
+        ok (rig.biggestStep (rig.third, split - 1) <= 0.1f / (float) fadeSamples * 1.01f, "...without a step");
     }
 
     group ("a device that opened only some of its inputs");
@@ -132,6 +156,27 @@ int main()
         ok (near (rig.left.back(), 0.0f), "an input not open plays silence");
     }
 
+    group ("no outputs, or a missing one");
+    {
+        Rig rig (firstN (4), { 0.1f, 0.2f, 0.3f, 0.4f });
+        rig.pick.choose (InputChoice::single (3));
+        rig.run (fadeSamples + 2 * block, 0);          // nothing written, the crossfade still runs its course
+        rig.run (block, 2);
+        ok (near (rig.left.back(), 0.4f) && near (rig.left[rig.left.size() - (std::size_t) block], 0.4f),
+            "with no outputs a change goes on as if heard, and is through");
+        ok (near (rig.pick.takeLevel (2), 0.3f), "...the meters measured all the same");
+
+        std::vector<float> in0 ((std::size_t) block, 0.1f), in1 ((std::size_t) block, 0.2f), right ((std::size_t) block, -1.0f);
+        const float* ins[] { in0.data(), in1.data() };
+        float* outs[] { nullptr, right.data() };
+        InputPick pick;
+        pick.prepare (rate, firstN (2));
+        pick.choose (InputChoice::paired (0, 1));
+        pick.prepare (rate, firstN (2));
+        pick.process (ins, 2, outs, 2, block);
+        ok (near (right.back(), 0.2f), "a missing first output: the second still written");
+    }
+
     group ("the meters");
     {
         Rig rig (firstN (4), { 0.1f, -0.5f, 0.3f, 0.0f });
@@ -141,6 +186,9 @@ int main()
         ok (near (rig.pick.takeLevel (2), 0.0f), "a level read is cleared until the next block");
         ok (near (rig.pick.takeLevel (9), 0.0f) && near (rig.pick.takeLevel (-1), 0.0f) && near (rig.pick.takeLevel (64), 0.0f),
             "an input not open, or none at all, reads nought");
+        rig.run (block);
+        rig.pick.prepare (rate, firstN (1));           // another device, IN 1 alone, before the meters were read
+        ok (near (rig.pick.takeLevel (1), 0.0f), "a new device starts the meters empty");
     }
 
     group ("the text a store keeps");
@@ -161,6 +209,15 @@ int main()
         ok (InputChoice::paired (2, 3).fittedTo (2) == InputChoice::paired (0, 1), "a pair it has not: IN 1 / IN 2");
         ok (InputChoice::paired (0, 1).fittedTo (1) == InputChoice::single (0), "a pair on a one-input device: IN 1");
         ok (InputChoice::single (0).fittedTo (0) == InputChoice::single (0), "no inputs at all: IN 1");
+
+        const std::uint64_t threeFour = (std::uint64_t (1) << 2) | (std::uint64_t (1) << 3);   // IN 3 and IN 4 open alone
+        ok (InputChoice::single (3).fittedTo (threeFour) == InputChoice::single (3), "an open input stays");
+        ok (InputChoice::single (0).fittedTo (threeFour) == InputChoice::single (2), "a closed one: the first input open, not a silent IN 1");
+        ok (InputChoice::summed (0, 1).fittedTo (threeFour) == InputChoice::summed (2, 3), "a closed sum: the first two open");
+        ok (InputChoice::paired (0, 3).fittedTo (std::uint64_t (1) << 3) == InputChoice::single (3), "a pair with one input open: that one");
+        ok (InputChoice::single (5).fittedTo (std::uint64_t (0)) == InputChoice::single (0), "none open: IN 1");
+        ok (InputChoice::firstInputs (64) == ~std::uint64_t (0) && InputChoice::firstInputs (3) == 7u && InputChoice::firstInputs (-1) == 0u,
+            "firstInputs: the first n bits");
     }
 
     group ("the memory, by the device's name");
@@ -179,6 +236,8 @@ int main()
         ok (memory.recall ("UMC404HD", 4) == InputChoice::single (3), "a bare number reads as one input");
         store["inputOf Broken"] = "x";
         ok (! memory.knows ("Broken") && memory.recall ("Broken", 4) == InputChoice::single (0), "junk kept reads as not kept");
+        ok (memory.recall ("Never seen", (std::uint64_t (1) << 2) | (std::uint64_t (1) << 3)) == InputChoice::single (2),
+            "a device not seen, IN 1 closed: the first input open");
         const InputMemory none {};
         ok (none.recall ("Any", 4) == InputChoice::single (0) && ! none.knows ("Any"), "no store: IN 1, nothing kept");
         none.remember ("Any", InputChoice::single (1));
