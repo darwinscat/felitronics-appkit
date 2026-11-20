@@ -59,7 +59,13 @@ public:
         return true;
     }
 
-    void setPlaying (bool shouldPlay) noexcept { if (! shouldPlay) position = 0.0; playing.store (shouldPlay); }
+    /** Message thread. A stop rewinds: under the lock, since a block may be reading the position on the audio thread
+        (which only try-locks, so this waits out at most the block in progress). */
+    void setPlaying (bool shouldPlay) noexcept
+    {
+        playing.store (shouldPlay);
+        if (! shouldPlay) { const juce::SpinLock::ScopedLockType lock (swapLock); position = 0.0; }
+    }
     bool isPlaying() const noexcept { return playing.load(); }
     juce::String loopName() const { const juce::SpinLock::ScopedLockType lock (swapLock); return name; }
 

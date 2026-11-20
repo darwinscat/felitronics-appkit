@@ -339,6 +339,24 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
     endif()
     add_test(NAME appkit_version_stamp_tests COMMAND appkit_version_stamp_tests)
 
+    # LoopPlayer: the loops a folder offers and in what order, a load whole or not at all, the loop's samples while
+    # playing (read straight through, or linearly interpolated at another rate), a stop that rewinds, no allocation
+    # on the audio thread.
+    add_executable(appkit_loop_player_tests tests/LoopPlayerFalsifyTests.cpp)
+    target_link_libraries(appkit_loop_player_tests PRIVATE
+        felitronics::appkit
+        juce::juce_audio_formats juce::juce_events
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_loop_player_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0)
+    target_compile_features(appkit_loop_player_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_loop_player_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_loop_player_tests COMMAND appkit_loop_player_tests)
+
     add_executable(appkit_brand_assets_tests tests/BrandAssetsFalsifyTests.cpp)
     target_link_libraries(appkit_brand_assets_tests PRIVATE
         felitronics::appkit
