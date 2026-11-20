@@ -26,8 +26,8 @@
 // device name and every heading, for ever. All 485 codepoints Michroma has are here now: printable
 // ASCII, Latin-1, Latin Extended-A and B, and the punctuation the family sets. Regenerate with:
 //
-//   pyftsubset assets/Michroma-Regular.ttf --output-file=<out>.ttf \
-//     --unicodes="*" --layout-features="kern" --no-hinting --desubroutinize --drop-tables+=DSIG
+//   pyftsubset assets/Michroma-Regular.ttf --output-file=<out>.ttf --unicodes="*" --layout-features="kern"
+//              --no-hinting --desubroutinize --drop-tables+=DSIG       (one command; no backslash, gcc reads it as a splice)
 //
 // then base64 it into the chunk array below. The WEB copy is still cut — see assets/README.
 //
