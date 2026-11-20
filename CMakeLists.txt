@@ -84,6 +84,20 @@ if(FELITRONICS_APPKIT_WEBP)
 endif()
 
 # Tests build when this IS the top-level project (a consumer's FetchContent does not inherit them).
+# --- Licence keys (opt-in): felitronics::appkit_licence ---------------------------------------------
+# LicenceKey.h checks a paid product's key: an Ed25519 signature (RFC 8032), checked by Monocypher 4.0.2, vendored
+# in third_party/monocypher (BSD-2-Clause or CC0; the release tarball's files, sha256 in its README). Monocypher is
+# C, so it is compiled here, into a static library only a product that links felitronics::appkit_licence builds:
+# EXCLUDE_FROM_ALL keeps it out of every other consumer's build.
+add_library(felitronics_appkit_licence STATIC EXCLUDE_FROM_ALL
+    third_party/monocypher/src/monocypher.c
+    third_party/monocypher/src/optional/monocypher-ed25519.c)
+add_library(felitronics::appkit_licence ALIAS felitronics_appkit_licence)
+target_include_directories(felitronics_appkit_licence SYSTEM PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/monocypher/src ${CMAKE_CURRENT_SOURCE_DIR}/third_party/monocypher/src/optional)
+target_link_libraries(felitronics_appkit_licence PUBLIC felitronics_appkit)
+set_target_properties(felitronics_appkit_licence PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 option(FELITRONICS_APPKIT_BUILD_TESTS "Build felitronics-appkit self-tests" "${PROJECT_IS_TOP_LEVEL}")
 
 # The JUCE compile gate is OFF by default so a bare `cmake && ctest` stays offline; CI turns it ON
@@ -140,6 +154,13 @@ target_compile_features(appkit_glyph_assets_tests PRIVATE cxx_std_20)
 target_compile_options(appkit_glyph_assets_tests PRIVATE ${APPKIT_STRICT_FLAGS})
 target_compile_definitions(appkit_glyph_assets_tests PRIVATE APPKIT_GLYPH_DIR="${CMAKE_CURRENT_SOURCE_DIR}/assets/glyphs")
 add_test(NAME appkit_glyph_assets_tests COMMAND appkit_glyph_assets_tests)
+
+# The licence key (LicenceKey.h): RFC 8032's vectors, keys made by Python + OpenSSL, every one-character change.
+add_executable(appkit_licence_key_tests tests/LicenceKeyTests.cpp)
+target_link_libraries(appkit_licence_key_tests PRIVATE felitronics::appkit_licence)
+target_compile_features(appkit_licence_key_tests PRIVATE cxx_std_20)
+target_compile_options(appkit_licence_key_tests PRIVATE ${APPKIT_STRICT_FLAGS})
+add_test(NAME appkit_licence_key_tests COMMAND appkit_licence_key_tests)
 
 # --- JUCE tier: UpdateChecker.h through a real consumer's compiler flags ----------------------------
 if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
