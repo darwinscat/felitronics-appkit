@@ -73,10 +73,13 @@ inline constexpr const char8_t* en[] {
     u8"Name",
     u8"E-mail",
     u8"Link",
+    u8"Copy",
+    u8"No mail app opened — write to {address}",
 
     // The card over the product's window after the trial
     u8"{product} keeps playing",
     u8"Your trial is over. Nothing is switched off and the sound stays the same. If {product} has earned its place in your mixes, please buy it.",
+    u8"Your year of updates ended on {date}; this version came out after it. Your licence keeps every version up to {date}.",
     u8"Buy {product} · {price}",
     u8"Can’t pay? We send a free licence when",
     u8"you are a student",
