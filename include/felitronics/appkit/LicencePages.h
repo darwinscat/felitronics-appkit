@@ -40,8 +40,9 @@ struct Purchase
 {
     std::function<Standing()> standing;                          // REQUIRED: read on every visit to the main page
     std::function<Reading (const juce::String& pasted)> enterKey; // REQUIRED: checks the paste, stores a valid key, answers
-    juce::String buyUrl;          // "Buy": the product's page in the shop
-    juce::String renewUrl;        // the renewal offer once a key's year of updates is over
+    juce::String productId;       // the id keys are issued for ("orbit480"): the key box's hint names it as a key does
+    juce::String buyUrl;          // "Buy": the product's page in the shop (empty: no Buy button)
+    juce::String renewUrl;        // the renewal offer once a key's year of updates is over (empty: no Renew button)
     juce::String freeLicenceTo;   // the address the free-licence letter goes to
 };
 
@@ -96,6 +97,9 @@ struct Letter
     juce::String subject, body;
 };
 
+// "A few words" are a few: the letter keeps the first 300 characters (the page's box takes no more).
+inline constexpr int kMaxLetterWords = 300;
+
 /** The free-licence letter, in the reader's language: they read it in their own mail app before they send it.
     `choice` is 0..3 in the page's order (student, musician short on money, posted a link, sending music). */
 inline Letter freeLicenceLetter (const juce::String& product, int choice, const juce::String& name,
@@ -114,8 +118,8 @@ inline Letter freeLicenceLetter (const juce::String& product, int choice, const 
     l.body << field ("Name", name) << field ("E-mail", email);
     if (link.trim().isNotEmpty())
         l.body << field ("Link", link);
-    if (words.trim().isNotEmpty())
-        l.body << "\n" << words.trim() << "\n";
+    if (const auto w = words.trim().substring (0, kMaxLetterWords).trim(); w.isNotEmpty())
+        l.body << "\n" << w << "\n";
     return l;
 }
 
@@ -284,7 +288,7 @@ public:
         freeLink.setButtonText (i18n::tr ("Free licence for students and musicians"));
         freeLink.onClick = [this] { if (onFreeLicence) onFreeLicence(); };
         addChildComponent (freeLink);
-        buy.onClick = [this] { if (launch && buyTarget.isWellFormed()) launch (buyTarget); };
+        buy.onClick = [this] { if (launch && buyTarget.toString (true).isNotEmpty()) launch (buyTarget); };
     }
 
     /** Says what `s` is: texts, and which buttons there are. */
@@ -347,7 +351,7 @@ public:
         state.set (stateText, big, look.text);
         details.set (detailText, body, look.ink);
         sentence.set (sentenceText, body, look.ink);
-        buy.setVisible (actions);
+        buy.setVisible (actions && buyTarget.toString (true).isNotEmpty());   // no address, no button
         enterKey.setVisible (actions);
         freeLink.setVisible (actions);
         resized();
@@ -361,7 +365,7 @@ public:
         int h = kPad + heading.heightFor (w) + 6 + state.heightFor (w);
         if (details.getText().isNotEmpty())  h += 4 + details.heightFor (w);
         if (sentence.getText().isNotEmpty()) h += 4 + sentence.heightFor (w);
-        if (buy.isVisible())                 h += 12 + PillButton::kHeight + 8 + kLinkH;
+        if (enterKey.isVisible())            h += 12 + PillButton::kHeight + 8 + kLinkH;
         return h + kPad;
     }
 
@@ -374,13 +378,20 @@ public:
         state.setBounds (r.removeFromTop (state.heightFor (w)));
         if (details.getText().isNotEmpty())  { r.removeFromTop (4); details.setBounds (r.removeFromTop (details.heightFor (w))); }
         if (sentence.getText().isNotEmpty()) { r.removeFromTop (4); sentence.setBounds (r.removeFromTop (sentence.heightFor (w))); }
-        if (buy.isVisible())
+        if (enterKey.isVisible())
         {
             r.removeFromTop (12);
             auto row = r.removeFromTop (PillButton::kHeight);
             const int half = (row.getWidth() - 10) / 2;
-            buy.setBounds (row.removeFromLeft (half));
-            enterKey.setBounds (row.removeFromRight (half));
+            if (buy.isVisible())
+            {
+                buy.setBounds (row.removeFromLeft (half));
+                enterKey.setBounds (row.removeFromRight (half));
+            }
+            else
+            {
+                enterKey.setBounds (row.removeFromLeft (half));   // alone, it keeps the place a pair would give it
+            }
             r.removeFromTop (8);
             freeLink.setBounds (r.removeFromTop (kLinkH).withWidth (juce::jmin (w, freeLink.idealWidth())));
         }
@@ -401,7 +412,7 @@ public:
     TextLink             freeLink;
     juce::URL            buyTarget;                        // the shop page, or the renewal offer
     std::function<void()> onEnterKey, onFreeLicence;
-    std::function<void (const juce::URL&)> launch;
+    std::function<bool (const juce::URL&)> launch;   // true when something opened it
 };
 
 //==============================================================================
@@ -442,7 +453,8 @@ class EnterKeyPage final : public juce::Component,
                            public juce::FileDragAndDropTarget
 {
 public:
-    EnterKeyPage (Look l, juce::String product) : look (l), productName (std::move (product))
+    EnterKeyPage (Look l, juce::String product, juce::String productId = {})
+        : look (l), productName (std::move (product)), id (std::move (productId))
     {
         top.build (*this, look, i18n::tr ("Enter your key"),
                    i18n::tr ("Paste the whole block from the e-mail, or drop the key file here. No internet needed."));
@@ -452,8 +464,11 @@ public:
         box.setReturnKeyStartsNewLine (true);
         box.setScrollbarsShown (true);
         styleEditor (box, look, juce::Font (juce::FontOptions (12.0f).withName (juce::Font::getDefaultMonospacedFontName())));
-        box.setTextToShowWhenEmpty ("-----BEGIN " + productName.toUpperCase().removeCharacters (" ") + " KEY-----",
+        // The hint is a key's own first line: it names the product's id, the way the block in the letter does.
+        box.setTextToShowWhenEmpty ("-----BEGIN " + (id.isNotEmpty() ? id : productName.removeCharacters (" ")).toUpperCase()
+                                        + " KEY-----",
                                     look.ink.withAlpha (0.5f));
+        box.onEscapeKey = [this] { if (onBack) onBack(); };   // Escape in the box goes back, not out of the window
         addAndMakeVisible (box);
 
         activate.fill = look.accentB;
@@ -469,8 +484,13 @@ public:
     {
         if (! enterKey)
             return;
-        const auto reading = enterKey (box.getText());
-        if (! reading)
+        // The product's function may take the window down with it (a product that closes About once licensed): after
+        // it returns, this page is only touched if it still exists.
+        // The function is called from a copy for the same reason: the page that owns it may be gone before it returns.
+        const juce::Component::SafePointer<EnterKeyPage> alive (this);
+        const auto ask = enterKey;
+        const auto reading = ask (box.getText());
+        if (alive == nullptr || ! reading)
             return;
         showAnswer (*reading);
         if (reading->verdict == Verdict::valid && onLicensed)
@@ -507,6 +527,27 @@ public:
     }
 
     void clearAnswer() { answer.setText ({}); }
+
+    bool holdsTypedText() const { return box.getText().trim().isNotEmpty(); }
+
+    // The box takes the keyboard as soon as the page is on screen: now when it is, or when it gets there (the About
+    // window opened straight on this page is built before it is shown).
+    void focusBox()
+    {
+        focusPending = true;
+        takeFocusIfShowing();
+    }
+
+    void visibilityChanged() override      { takeFocusIfShowing(); }
+    void parentHierarchyChanged() override { takeFocusIfShowing(); }
+
+    void takeFocusIfShowing()
+    {
+        if (! focusPending || ! isShowing())
+            return;
+        focusPending = false;
+        box.grabKeyboardFocus();
+    }
 
     // A key file is a few hundred bytes of text; anything else dropped here is not one.
     bool isInterestedInFileDrag (const juce::StringArray& files) override
@@ -554,8 +595,9 @@ public:
     static constexpr int kPad = 6, kBoxH = 116;
 
     Look              look;
-    juce::String      productName;
+    juce::String      productName, id;
     PageTop           top;
+    bool              focusPending = false;
     juce::TextEditor  box;
     PillButton        activate { true };
     Para              answer;
@@ -569,6 +611,10 @@ public:
 class FreeLicencePage final : public juce::Component
 {
 public:
+    // What the fields take, and the longest mailto address the letter may become: the Windows shell refuses one long
+    // before a browser would, and percent-encoded Cyrillic is six characters a letter.
+    static constexpr int kMaxName = 100, kMaxEmail = 120, kMaxLink = 300, kMaxMailto = 1800;
+
     FreeLicencePage (Look l, juce::String product, juce::String to)
         : look (l), productName (std::move (product)), address (std::move (to))
     {
@@ -599,6 +645,7 @@ public:
             styleEditor (e, look, f);
             e.setTextToShowWhenEmpty (i18n::fill (i18n::tr (hint), { { "product", productName } }), look.ink.withAlpha (0.6f));
             e.onTextChange = [this] { update(); };
+            e.onEscapeKey  = [this] { if (onBack) onBack(); };   // Escape in a field goes back, not out of the window
             addAndMakeVisible (e);
         };
         field (name,  "Your name");
@@ -607,11 +654,40 @@ public:
         field (words, "A few words (optional)");
         words.setMultiLine (true, true);
         words.setReturnKeyStartsNewLine (true);
+        name.setInputRestrictions (kMaxName);
+        email.setInputRestrictions (kMaxEmail);
+        link.setInputRestrictions (kMaxLink);
+        words.setInputRestrictions (kMaxLetterWords);
 
         write.fill = look.accentB;
         write.setButtonText (i18n::tr ("Write the e-mail"));
-        write.onClick = [this] { if (launch && write.isEnabled()) launch (juce::URL::createWithoutParsing (url())); };
+        write.onClick = [this]
+        {
+            if (! launch || ! write.isEnabled())
+                return;
+            failed.setVisible (! launch (juce::URL::createWithoutParsing (url())));   // nothing opened: say where to write
+        };
         addAndMakeVisible (write);
+
+        // The address, always on the page and selectable: whoever has no mail app, or a webmail one, can still write.
+        addressBox.setReadOnly (true);
+        addressBox.setCaretVisible (false);
+        styleEditor (addressBox, look, juce::Font (juce::FontOptions (13.0f).withName (juce::Font::getDefaultMonospacedFontName())));
+        addressBox.setText (address, false);
+        addAndMakeVisible (addressBox);
+        copy.colour = look.accentHover;
+        copy.setButtonText (i18n::tr ("Copy"));
+        copy.onClick = [this]
+        {
+            if (copyText) copyText (address);
+            copy.setButtonText (i18n::tr ("copied \xe2\x9c\x93"));
+            resized();
+        };
+        addAndMakeVisible (copy);
+
+        failed.set (i18n::fill (i18n::tr ("No mail app opened \xe2\x80\x94 write to {address}"), { { "address", address } }),
+                    juce::Font (juce::FontOptions (13.0f, juce::Font::bold)), look.accentB);
+        addChildComponent (failed);
 
         note.set (i18n::fill (i18n::tr ("Opens your mail app with this filled in. Nothing is sent from {product} itself."),
                               { { "product", productName } }),
@@ -634,10 +710,32 @@ public:
         return freeLicenceLetter (productName, choice(), name.getText(), email.getText(), link.getText(), words.getText());
     }
 
+    bool holdsTypedText() const
+    {
+        for (const auto* e : { &name, &email, &link, &words })
+            if (e->getText().trim().isNotEmpty())
+                return true;
+        return false;
+    }
+
+    /** The mailto address for the letter, never longer than kMaxMailto: past it the words give way first, then the
+        link, then the name — a letter that says less still reaches us, one that does not open says nothing. */
     juce::String url() const
     {
-        const auto l = letter();
-        return mailtoUrl (address, l.subject, l.body);
+        auto w = words.getText().trim().substring (0, kMaxLetterWords), lk = link.getText().trim(), nm = name.getText().trim();
+        const auto make = [&]
+        {
+            const auto l = freeLicenceLetter (productName, choice(), nm, email.getText(), lk, w);
+            return mailtoUrl (address, l.subject, l.body);
+        };
+        auto u = make();
+        for (auto* part : { &w, &lk, &nm })
+            while (u.length() > kMaxMailto && part->isNotEmpty())
+            {
+                *part = part->dropLastCharacters (juce::jmax (1, part->length() / 8)).trimEnd();
+                u = make();
+            }
+        return u;
     }
 
     // The letter needs to say who it is for and where the key goes; the rest is optional.
@@ -651,7 +749,8 @@ public:
         const int w = width - 2 * kPad;
         const int noteW = w - write.idealWidth() - 14;
         return kPad + top.heightFor (w) + 12 + iAm.heightFor (w) + 4 + (int) choices.size() * kChoiceH + 10
-             + kFieldH + 6 + kFieldH + 6 + kWordsH + 12 + juce::jmax (PillButton::kHeight, note.heightFor (noteW)) + kPad;
+             + kFieldH + 6 + kFieldH + 6 + kWordsH + 12 + juce::jmax (PillButton::kHeight, note.heightFor (noteW))
+             + 10 + kFieldH + 8 + failed.heightFor (w) + kPad;   // the address row, and room for the line under it
     }
 
     void resized() override
@@ -680,6 +779,15 @@ public:
         write.setBounds (row.removeFromLeft (write.idealWidth()).withHeight (PillButton::kHeight));
         row.removeFromLeft (14);
         note.setBounds (row.withSizeKeepingCentre (row.getWidth(), note.heightFor (row.getWidth())));
+        r.removeFromTop (10);
+        {
+            auto line = r.removeFromTop (kFieldH);
+            copy.setBounds (line.removeFromRight (copy.idealWidth() + 8));
+            line.removeFromRight (8);
+            addressBox.setBounds (line);
+        }
+        r.removeFromTop (8);
+        failed.setBounds (r.removeFromTop (failed.heightFor (w)));
     }
 
     void paint (juce::Graphics& g) override { g.fillAll (look.ground); }
@@ -689,12 +797,14 @@ public:
     Look                       look;
     juce::String               productName, address;
     PageTop                    top;
-    Para                       iAm, note;
+    Para                       iAm, note, failed;
     std::array<juce::ToggleButton, 4> choices;
-    juce::TextEditor           name, email, link, words;
+    juce::TextEditor           name, email, link, words, addressBox;
     PillButton                 write { true };
+    TextLink                   copy;
     std::function<void()>      onBack;
-    std::function<void (const juce::URL&)> launch;
+    std::function<bool (const juce::URL&)> launch;   // true when a mail app took the address
+    std::function<void (const juce::String&)> copyText = [] (const juce::String& s) { juce::SystemClipboard::copyTextToClipboard (s); };
 };
 
 } // namespace felitronics::appkit::licence

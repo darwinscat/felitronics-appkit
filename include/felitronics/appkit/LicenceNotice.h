@@ -7,8 +7,10 @@
 // trial is over and the window is open. juce_gui_basics.
 //
 // It says the product keeps playing — nothing is switched off — and offers what can be done: buy, enter a key, or ask
-// for one of the four free licences. "Not now" counts 5 4 3 2 1 before it can be pressed (a second each, restarted
-// every time the card is shown), and then hides the card; the product keeps it hidden until its window opens again.
+// for one of the four free licences. For a key whose year of updates ended before this version came out, it says so
+// and offers the renewal instead of the purchase. "Not now" counts 5 4 3 2 1 before it can be pressed (a second each,
+// restarted every time the card comes back on screen, also when only a parent of it was hidden and shown), and then
+// hides the card; the product keeps it hidden until its window opens again.
 // The card does nothing itself but hide: every button is a callback to the product, which opens its shop page or
 // its About window on the right page (VersionBadge::showAbout).
 //
@@ -30,7 +32,8 @@ namespace felitronics::appkit
 {
 
 class LicenceNotice final : public juce::Component,
-                            private juce::Timer
+                            private juce::Timer,
+                            private juce::ComponentListener
 {
 public:
     struct Config
@@ -44,6 +47,12 @@ public:
         juce::Colour accentB     { 0xffff8822 };
         juce::Colour text        { 0xffd8d8d8 };
         juce::Colour ground      { 0xff111119 };
+
+        // A key whose year of updates ended before this version: the card says until when the key keeps every version,
+        // and its first button is the renewal (renewUrl, opened through `launch`; empty hides the button).
+        bool          updatesOver  = false;
+        std::uint16_t updatesUntil = 0;     // the key's last covered release day (licence::Key::updatesUntil)
+        juce::String  renewUrl;
 
         std::function<void()> onBuy;        // open the shop page
         std::function<void()> onEnterKey;   // About, on its "Enter key" page
@@ -61,8 +70,12 @@ public:
         const juce::Colour ink = config.text.withAlpha (0.75f);
 
         title.set (product ("{product} keeps playing"), juce::Font (juce::FontOptions (20.0f, juce::Font::bold)), config.text);
-        sentence.set (product ("Your trial is over. Nothing is switched off and the sound stays the same. If {product} "
-                               "has earned its place in your mixes, please buy it."),
+        const auto ended = juce::String (licence::isoDate (config.updatesUntil));
+        sentence.set (config.updatesOver
+                          ? fill (tr ("Your year of updates ended on {date}; this version came out after it. Your licence "
+                                      "keeps every version up to {date}."), { { "date", ended } })
+                          : product ("Your trial is over. Nothing is switched off and the sound stays the same. If {product} "
+                                     "has earned its place in your mixes, please buy it."),
                       juce::Font (juce::FontOptions (14.0f)), ink);
         cantPay.set (tr ("Can\xe2\x80\x99t pay? We send a free licence when"),
                      juce::Font (juce::FontOptions (13.0f, juce::Font::bold)), config.text);
@@ -78,11 +91,20 @@ public:
             addAndMakeVisible (*p);
 
         buy.fill = config.accentB;
-        buy.setButtonText (config.price.isNotEmpty()
-                               ? fill (tr ("Buy {product} \xc2\xb7 {price}"), { { "product", config.productName }, { "price", config.price } })
-                               : product ("Buy {product}"));
-        buy.onClick = [this] { if (config.onBuy) config.onBuy(); };
-        addAndMakeVisible (buy);
+        if (config.updatesOver)
+        {
+            buy.setButtonText (tr ("Renew at 50 % off"));
+            buy.onClick = [this] { if (launch && config.renewUrl.isNotEmpty()) launch (juce::URL (config.renewUrl)); };
+        }
+        else
+        {
+            buy.setButtonText (config.price.isNotEmpty()
+                                   ? fill (tr ("Buy {product} \xc2\xb7 {price}"), { { "product", config.productName }, { "price", config.price } })
+                                   : product ("Buy {product}"));
+            buy.onClick = [this] { if (config.onBuy) config.onBuy(); };
+        }
+        addChildComponent (buy);
+        buy.setVisible (! config.updatesOver || config.renewUrl.isNotEmpty());
 
         enterKey.edge = config.accent;
         enterKey.ink  = config.text;
@@ -103,6 +125,11 @@ public:
         setSize (kWidth, heightFor (kWidth));
         restartCountdown();
     }
+
+    ~LicenceNotice() override { unwatch(); }
+
+    // How the renewal opens its address. A seam for the tests, which must never launch anything.
+    std::function<bool (const juce::URL&)> launch = [] (const juce::URL& u) { return u.launchInDefaultBrowser(); };
 
     /** 5 4 3 2 1 while "Not now" waits, 0 once it can be pressed. */
     int countLeft() const { return left; }
@@ -138,8 +165,15 @@ public:
         {
             auto row = r.removeFromTop (licence::PillButton::kHeight);
             const int half = (row.getWidth() - 12) / 2;
-            buy.setBounds (row.removeFromLeft (half));
-            enterKey.setBounds (row.removeFromRight (half));
+            if (buy.isVisible())
+            {
+                buy.setBounds (row.removeFromLeft (half));
+                enterKey.setBounds (row.removeFromRight (half));
+            }
+            else
+            {
+                enterKey.setBounds (row.removeFromLeft (half));
+            }
         }
         r.removeFromTop (18);
         cantPay.setBounds (r.removeFromTop (cantPay.heightFor (w)));
@@ -167,10 +201,44 @@ public:
     }
 
 private:
-    void visibilityChanged() override
+    // On screen again after not being on screen: the card itself, or any parent of it. JUCE tells a child nothing when
+    // only an ancestor's visibility changes, so the card listens to every ancestor (and re-listens when they change).
+    // "On screen" is every component up the chain visible — the window's own showing is the window's business.
+    bool shownUpTheChain() const
     {
-        if (isVisible()) restartCountdown();
-        else             stopTimer();
+        for (const juce::Component* c = this; c != nullptr; c = c->getParentComponent())
+            if (! c->isVisible())
+                return false;
+        return true;
+    }
+
+    void showingMaybeChanged()
+    {
+        const bool now = shownUpTheChain();
+        if (now && ! wasShown) restartCountdown();
+        if (! now)             stopTimer();
+        wasShown = now;
+    }
+
+    void visibilityChanged() override                              { showingMaybeChanged(); }
+    void componentVisibilityChanged (juce::Component&) override    { showingMaybeChanged(); }
+    void parentHierarchyChanged() override
+    {
+        unwatch();
+        for (auto* p = getParentComponent(); p != nullptr; p = p->getParentComponent())
+        {
+            p->addComponentListener (this);
+            watched.add (p);
+        }
+        showingMaybeChanged();
+    }
+
+    void unwatch()
+    {
+        for (auto& w : watched)
+            if (auto* c = w.getComponent())
+                c->removeComponentListener (this);
+        watched.clear();
     }
 
     void timerCallback() override
@@ -207,6 +275,8 @@ private:
     licence::PillButton             buy { true }, enterKey { false };
     licence::TextLink               askFree, notNow;
     int                             left = kCountFrom;
+    bool                            wasShown = false;
+    juce::Array<juce::Component::SafePointer<juce::Component>> watched;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LicenceNotice)
 };
