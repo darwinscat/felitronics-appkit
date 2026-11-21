@@ -117,57 +117,146 @@ inline std::optional<Bytes> unbase32 (std::string_view in)
     return out;
 }
 
-// The base32 characters a person pasted: between a BEGIN line and the next END line when there is a BEGIN line
-// (anything around them is the e-mail's), else the whole text. Spaces, line breaks and a mail client's '>' quote marks
-// are dropped and lower case is raised; any other character makes the paste unreadable.
-inline std::optional<std::string> extract (std::string_view text)
+// A paste, made plain: CRLF and a lone CR become LF, and the spaces a mail client or a word processor puts in (tab,
+// no-break, the typographic and zero-width spaces, the byte order mark, the ideographic space) become ' '; the line
+// and paragraph separators (U+2028/9, NEL) become LF.
+inline std::string plain (std::string_view text)
 {
-    std::vector<std::string_view> lines;
-    for (std::size_t start = 0; start <= text.size();)
-    {
-        auto end = text.find ('\n', start);
-        if (end == std::string_view::npos) end = text.size();
-        lines.push_back (text.substr (start, end - start));
-        start = end + 1;
-    }
-    auto trimmed = [] (std::string_view l)
-    {
-        while (! l.empty() && (l.front() == ' ' || l.front() == '\t' || l.front() == '>' || l.front() == '\r')) l.remove_prefix (1);
-        while (! l.empty() && (l.back() == ' ' || l.back() == '\t' || l.back() == '\r')) l.remove_suffix (1);
-        return l;
-    };
-    auto opens = [] (std::string_view l, std::string_view word)   // "-----BEGIN" / "-----END", any case
-    {
-        if (l.size() < 5 + word.size() || l.substr (0, 5) != "-----") return false;
-        for (std::size_t i = 0; i < word.size(); ++i)
-        {
-            char c = l[5 + i];
-            if (c >= 'a' && c <= 'z') c = static_cast<char> (c - 'a' + 'A');
-            if (c != word[i]) return false;
-        }
-        return true;
-    };
-    std::size_t from = 0, to = lines.size();
-    for (std::size_t i = 0; i < lines.size(); ++i)
-        if (opens (trimmed (lines[i]), "BEGIN"))
-        {
-            from = i + 1; to = lines.size();
-            for (std::size_t j = i + 1; j < lines.size(); ++j)
-                if (opens (trimmed (lines[j]), "END")) { to = j; break; }
-            if (to == lines.size()) return std::nullopt;   // a BEGIN without its END: cut short
-            break;
-        }
     std::string out;
-    for (std::size_t i = from; i < to; ++i)
-        for (char c : trimmed (lines[i]))
-        {
-            if (c == ' ' || c == '\t') continue;
-            if (c >= 'a' && c <= 'z') c = static_cast<char> (c - 'a' + 'A');
-            if ((c >= 'A' && c <= 'Z') || (c >= '2' && c <= '7')) out += c;
-            else return std::nullopt;
-        }
+    out.reserve (text.size());
+    for (std::size_t i = 0; i < text.size();)
+    {
+        const auto at = [&] (std::size_t k) { return i + k < text.size() ? static_cast<std::uint8_t> (text[i + k]) : std::uint8_t { 0 }; };
+        const auto b0 = at (0), b1 = at (1), b2 = at (2);
+        if (b0 == '\r')                                           { out += '\n'; i += b1 == '\n' ? 2 : 1; }
+        else if (b0 == '\t' || b0 == '\v' || b0 == '\f')         { out += ' '; i += 1; }
+        else if (b0 == 0xc2 && (b1 == 0xa0 || b1 == 0x85))       { out += b1 == 0x85 ? '\n' : ' '; i += 2; }   // NBSP, NEL
+        else if (b0 == 0xe1 && b1 == 0x9a && b2 == 0x80)         { out += ' '; i += 3; }                        // U+1680
+        else if (b0 == 0xe2 && b1 == 0x80 && (b2 <= 0x8b || b2 == 0xaf)) { out += ' '; i += 3; }                // U+2000..200B, U+202F
+        else if (b0 == 0xe2 && b1 == 0x80 && (b2 == 0xa8 || b2 == 0xa9)) { out += '\n'; i += 3; }               // U+2028, U+2029
+        else if (b0 == 0xe2 && b1 == 0x81 && (b2 == 0x9f || b2 == 0xa0)) { out += ' '; i += 3; }                // U+205F, U+2060
+        else if (b0 == 0xe3 && b1 == 0x80 && b2 == 0x80)         { out += ' '; i += 3; }                        // U+3000
+        else if (b0 == 0xef && b1 == 0xbb && b2 == 0xbf)         { out += ' '; i += 3; }                        // U+FEFF
+        else                                                     { out += static_cast<char> (b0); i += 1; }
+    }
+    return out;
+}
+
+inline char upper (char c) noexcept { return (c >= 'a' && c <= 'z') ? static_cast<char> (c - 'a' + 'A') : c; }
+
+// A key's marker: "-----BEGIN <NAME> KEY-----" or "-----END <NAME> KEY-----", any case, anywhere in the text (a block
+// a mail client flattened to one line still has both). NAME is what a header carries: letters, digits, '-'. Nothing
+// else is a key's marker: "-----BEGIN PGP SIGNED MESSAGE-----" is not.
+struct Marker
+{
+    std::size_t start = 0, end = 0;   // where the marker's text is
+    std::string name;                 // upper case
+};
+
+inline std::vector<Marker> markers (const std::string& s, std::string_view word)
+{
+    std::vector<Marker> out;
+    const std::string open = "-----" + std::string (word) + " ";
+    constexpr std::string_view close = " KEY-----";
+    for (std::size_t i = 0; i + open.size() <= s.size(); ++i)
+    {
+        bool hit = true;
+        for (std::size_t k = 0; k < open.size() && hit; ++k)
+            hit = upper (s[i + k]) == open[k];
+        if (! hit)
+            continue;
+        Marker m;
+        m.start = i;
+        std::size_t j = i + open.size();
+        while (j < s.size() && m.name.size() <= kMaxProduct
+               && ((s[j] >= 'A' && s[j] <= 'Z') || (s[j] >= 'a' && s[j] <= 'z') || (s[j] >= '0' && s[j] <= '9') || s[j] == '-'))
+            m.name += upper (s[j++]);
+        bool closed = ! m.name.empty() && j + close.size() <= s.size();
+        for (std::size_t k = 0; k < close.size() && closed; ++k)
+            closed = upper (s[j + k]) == close[k];
+        if (! closed)
+            continue;
+        m.end = j + close.size();
+        i = m.end - 1;
+        out.push_back (std::move (m));
+    }
+    return out;
+}
+
+// The base32 characters a person pasted. When the paste holds key blocks, the block whose header names `product`
+// (the first block when none does), from its BEGIN marker to the next END marker; anything around it is the letter's.
+// Without a BEGIN marker, the whole paste. Inside, every line loses a mail client's quote marks ('>' or '|') in front;
+// spaces and line breaks are dropped and lower case is raised; any other character makes the paste unreadable, and so
+// does a BEGIN with no END after it.
+inline std::optional<std::string> extract (std::string_view pasted, std::string_view product = {})
+{
+    const auto text = plain (pasted);
+    std::string_view body (text);
+
+    const auto begins = markers (text, "BEGIN");
+    if (! begins.empty())
+    {
+        std::string wanted;
+        for (char c : product) wanted += upper (c);
+        const Marker* begin = &begins.front();
+        for (const auto& b : begins)
+            if (b.name == wanted) { begin = &b; break; }
+        const Marker* end = nullptr;
+        const auto ends = markers (text, "END");
+        for (const auto& e : ends)
+            if (e.start >= begin->end) { end = &e; break; }
+        if (end == nullptr)
+            return std::nullopt;   // a BEGIN without its END: cut short
+        body = std::string_view (text).substr (begin->end, end->start - begin->end);
+    }
+
+    std::string out;
+    bool lineStart = true;
+    for (char c : body)
+    {
+        if (c == '\n')                                { lineStart = true; continue; }
+        if (c == ' ')                                 continue;
+        if (lineStart && (c == '>' || c == '|'))      continue;   // quote marks, before the line's first character
+        lineStart = false;
+        c = upper (c);
+        if ((c >= 'A' && c <= 'Z') || (c >= '2' && c <= '7')) out += c;
+        else return std::nullopt;
+    }
     if (out.empty()) return std::nullopt;
     return out;
+}
+
+// Public keys that let a forgery through. Ed25519 as RFC 8032 checks it does not refuse a public key of small order,
+// and against one, a "signature" that is the identity point and a zero scalar checks for a share of all messages. A
+// product's own key is never one of these; a damaged or zeroed one in a build could be, so the check refuses them. The
+// list is libsodium's small-order blacklist (the sign bit of the last byte ignored, as libsodium does).
+inline bool weakPublicKey (const PublicKey& pk) noexcept
+{
+    static constexpr std::uint8_t kSmallOrder[7][32] {
+        { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },   // 0, order 4
+        { 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+          0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 },   // 1, order 1
+        { 0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef, 0x98, 0xf0,
+          0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88, 0x6d, 0x53, 0xfc, 0x05 },   // order 8
+        { 0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10, 0x67, 0x0f,
+          0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77, 0x92, 0xac, 0x03, 0x7a },   // order 8
+        { 0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+          0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f },   // p-1, order 2
+        { 0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+          0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f },   // p (= 0)
+        { 0xee, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+          0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f },   // p+1 (= 1)
+    };
+    for (const auto& bad : kSmallOrder)
+    {
+        unsigned diff = static_cast<unsigned> (pk[31] & 0x7fu) ^ bad[31];
+        for (std::size_t j = 0; j < 31; ++j)
+            diff |= static_cast<unsigned> (pk[j] ^ bad[j]);
+        if (diff == 0)
+            return true;
+    }
+    return false;
 }
 } // namespace detail
 
@@ -204,7 +293,8 @@ inline std::string text (const Bytes& signedKey, std::string_view product)
 inline Reading read (std::string_view pasted, const PublicKey& publicKey, std::string_view product)
 {
     Reading r;
-    const auto chars = detail::extract (pasted);
+    if (detail::weakPublicKey (publicKey)) return r;   // nothing checks against a key that lets forgeries through
+    const auto chars = detail::extract (pasted, product);
     if (! chars) return r;
     const auto bytes = detail::unbase32 (*chars);
     if (! bytes || bytes->size() < detail::kFixed + 1 + detail::kSignature) return r;
@@ -238,6 +328,7 @@ inline Reading read (std::string_view pasted, const PublicKey& publicKey, std::s
 
     r.key = std::move (k);
     r.verdict = (r.key.product == product) ? Verdict::valid : Verdict::otherProduct;
+    r.block = text (*bytes, r.key.product);   // the key alone, as it is issued: what a store keeps
     return r;
 }
 

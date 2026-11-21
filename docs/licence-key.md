@@ -44,10 +44,14 @@ between a BEGIN and an END line naming the product in upper case:
 -----END ORBIT480 KEY-----
 ```
 
-A product reads: the lines between the first BEGIN line and the next END line (any case; anything around them is the
-letter's), or the whole paste when there is no BEGIN line. Spaces, line breaks and leading `>` quote marks are
-dropped, lower case is raised; any other character, a BEGIN without an END, a length no byte string has, or spare
-bits that are not zero make the key "damaged" before its signature is checked.
+A product reads the block whose BEGIN line names it (`-----BEGIN ORBIT480 KEY-----`, any case), or the first key
+block when none does, up to the next END line; anything around it is the letter's. Only `-----BEGIN <NAME> KEY-----`
+is a key's BEGIN (a `-----BEGIN PGP SIGNED MESSAGE-----` is not), and a block a mail client flattened to one line still
+reads. Without a BEGIN line, the whole paste is the key. Line breaks (LF, CRLF, CR), spaces (also no-break and the other
+Unicode spaces) and the quote marks `>` and `|` in front of a line are dropped, lower case is raised; any other
+character, a BEGIN without an END, a length no byte string has, or spare bits that are not zero make the key "damaged"
+before its signature is checked. A public key of small order (libsodium's blacklist) checks nothing: every key is
+"damaged" against it.
 
 ## What a product answers
 

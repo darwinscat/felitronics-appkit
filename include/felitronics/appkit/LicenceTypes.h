@@ -47,6 +47,10 @@ struct Reading
 {
     Verdict verdict = Verdict::damaged;
     Key     key;    // filled for valid and otherProduct
+
+    // Valid and otherProduct: the key alone, written out as it is issued (BEGIN line, base32, END line) — what a
+    // product stores, never the letter it was pasted from.
+    std::string block;
 };
 
 /** Does the key cover a version released on `releaseDay`? */
