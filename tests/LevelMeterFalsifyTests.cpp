@@ -104,7 +104,7 @@ int main()
         ok (baseline.has_value() && std::isfinite (*baseline), "baseline -6 dB bar is finite");
 
         const float nan = std::numeric_limits<float>::quiet_NaN();
-        for (const auto badRange : { std::pair<float, float> { -12.0f, -12.0f },
+        for (const auto& badRange : { std::pair<float, float> { -12.0f, -12.0f },
                                      std::pair<float, float> {   6.0f, -60.0f },
                                      std::pair<float, float> { nan, 6.0f },
                                      std::pair<float, float> { -60.0f, nan } })

@@ -39,7 +39,9 @@ struct MiniShell : juce::Component
                                   .attention  = juce::Colour (0xffffaa33),
                                   .text       = juce::Colours::white,
                                   .textDim    = juce::Colour (0x80ffffff),
-                                  .activeText = juce::Colours::white };
+                                  .activeText = juce::Colours::white,
+                                  .display    = {},
+                                  .tracking   = 0.0f };
     DotMark                mark;
     chrome::BrandBlister   blister   { metrics, theme };
     chrome::ChromeUnderline underline { blister, metrics, theme };

@@ -67,6 +67,7 @@ struct BadgeChecker final : UpdateChecker
 {
     explicit BadgeChecker (juce::String current)
         : UpdateChecker ({ .ownerRepo      = "darwinscat/felitronics-appkit",
+                           .tagPrefix      = {},
                            .productName    = "Badge Gate",
                            .currentVersion = std::move (current),
                            .settings       = {} }) {}

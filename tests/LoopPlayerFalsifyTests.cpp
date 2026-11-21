@@ -25,6 +25,11 @@ using namespace felitronics::appkit;
 // Allocations counted only while armed: fill() runs on the audio thread and must not reach the allocator.
 static std::atomic<bool> g_armed { false };
 static std::atomic<long> g_allocs { 0 };
+// gcc 14 reads free() on what ::operator new returned as a mismatched pair; here operator new IS malloc.
+#if defined (__GNUC__) && ! defined (__clang__)
+ #pragma GCC diagnostic push
+ #pragma GCC diagnostic ignored "-Wmismatched-new-delete"
+#endif
 void* operator new (std::size_t n)
 {
     if (g_armed.load (std::memory_order_relaxed)) g_allocs.fetch_add (1, std::memory_order_relaxed);
@@ -36,6 +41,9 @@ void operator delete (void* p) noexcept { std::free (p); }
 void operator delete[] (void* p) noexcept { std::free (p); }
 void operator delete (void* p, std::size_t) noexcept { std::free (p); }
 void operator delete[] (void* p, std::size_t) noexcept { std::free (p); }
+#if defined (__GNUC__) && ! defined (__clang__)
+ #pragma GCC diagnostic pop
+#endif
 
 static int checks = 0, failures = 0;
 static void ok (bool cond, const std::string& what)
