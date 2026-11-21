@@ -521,6 +521,23 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
     endif()
     add_test(NAME appkit_compare_history_tests COMMAND appkit_compare_history_tests)
 
+    # The About window's languages (I18n.h): every table complete against the English keys, placeholders kept, the
+    # bytes of a Cyrillic and a Latin-diacritic sentence exactly UTF-8 (MSVC reads the tables without /utf-8), and
+    # CLDR's plural rules on CLDR's own sample numbers.
+    add_executable(appkit_i18n_tests tests/I18nTests.cpp)
+    target_link_libraries(appkit_i18n_tests PRIVATE
+        felitronics::appkit
+        juce::juce_core
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_i18n_tests PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0)
+    target_compile_features(appkit_i18n_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(appkit_i18n_tests PRIVATE -Werror)
+    endif()
+    add_test(NAME appkit_i18n_tests COMMAND appkit_i18n_tests)
+
     add_executable(appkit_consumer_compile_check tests/ConsumerCompileCheck.cpp)
     target_link_libraries(appkit_consumer_compile_check PRIVATE
         felitronics::appkit
