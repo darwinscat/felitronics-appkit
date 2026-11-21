@@ -30,6 +30,7 @@ struct StampChecker final : UpdateChecker
 {
     explicit StampChecker (juce::String describe)
         : UpdateChecker ({ .ownerRepo      = "darwinscat/felitronics-appkit",
+                           .tagPrefix      = {},
                            .productName    = "Probe",
                            .currentVersion = std::move (describe),
                            .settings       = {} }) {}

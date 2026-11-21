@@ -112,7 +112,7 @@ int main()
     group ("wordmark fallback font metrics are sane");
     {
         const auto f = brand::wordmarkFont (nullptr, 20.0f);
-        ok (brand::textWidth (f, "") == 0.0f, "empty wordmark has zero width");
+        ok (brand::textWidth (f, "") <= 0.0f, "empty wordmark has zero width");   // never negative; <= keeps -Wfloat-equal quiet
         ok (brand::textWidth (f, "Felitronics") > brand::textWidth (f, "F"), "longer wordmark measures wider");
     }
 

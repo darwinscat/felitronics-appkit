@@ -40,7 +40,9 @@ static chrome::ChromeTheme vividTheme()
              .attention  = juce::Colour (0xff00ff00),   // GREEN — edited dot + drop ring
              .text       = juce::Colour (0xff808080),
              .textDim    = juce::Colour (0xff404040),
-             .activeText = juce::Colour (0xff0000ff) };  // BLUE — on-state label (a DISTINCT hue, not white,
+             .activeText = juce::Colour (0xff0000ff),
+             .display    = {},
+             .tracking   = 0.0f };  // BLUE — on-state label (a DISTINCT hue, not white,
 }                                                        // so the seam can't hide behind the old hardcoded white)
 
 static int countIf (const juce::Image& img, bool (*pred) (juce::Colour))

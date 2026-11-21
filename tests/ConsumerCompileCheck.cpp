@@ -18,6 +18,11 @@
 #include <felitronics/appkit/InputList.h>
 #include <felitronics/appkit/InputPick.h>
 #include <felitronics/appkit/IrWaveView.h>
+#include <felitronics/appkit/I18n.h>
+#include <felitronics/appkit/LicenceNotice.h>
+#include <felitronics/appkit/LicencePages.h>
+#include <felitronics/appkit/LicenceStore.h>
+#include <felitronics/appkit/LicenceTypes.h>
 #include <felitronics/appkit/CallOut.h>
 #include <felitronics/appkit/DeviceGlyph.h>
 #include <felitronics/appkit/DeviceSpec.h>
@@ -47,6 +52,7 @@ struct ChkAdapter : felitronics::appkit::UpdateChecker
 {
     ChkAdapter()
         : felitronics::appkit::UpdateChecker ({ .ownerRepo      = "darwinscat/felitronics-appkit",
+                                                .tagPrefix      = {},
                                                 .productName    = "Appkit Gate",
                                                 .currentVersion = "v0.1.0-7-gdeadbee",
                                                 .settings       = {} }) {}
@@ -255,17 +261,17 @@ int main (int argc, char** argv)
     // and smoke-constructed headless (components are never added to the desktop, no popups shown).
     {
         ChkAdapter c;
-        felitronics::appkit::VersionBadge badge (c,
-            { .productName   = "Appkit Gate",
-              .productUrl    = "https://example.invalid/appkit-gate",
-              .gitHash       = "deadbee",
-              .buildNumber   = 20260712000000LL,
-              .buildCount    = 7,
-              .gitDirty      = true,
-              .os = "macOS", .arch = "arm64", .builder = "gate",
-              .coreVersion   = "v0.1.0 (local)",
-              .coreOwnerRepo = "darwinscat/felitronics-core" },
-            "Standalone");
+        felitronics::appkit::VersionBadge::Config badgeConfig;   // by name: a designated list must name every later member
+        badgeConfig.productName   = "Appkit Gate";
+        badgeConfig.productUrl    = "https://example.invalid/appkit-gate";
+        badgeConfig.gitHash       = "deadbee";
+        badgeConfig.buildNumber   = 20260712000000LL;
+        badgeConfig.buildCount    = 7;
+        badgeConfig.gitDirty      = true;
+        badgeConfig.os = "macOS"; badgeConfig.arch = "arm64"; badgeConfig.builder = "gate";
+        badgeConfig.coreVersion   = "v0.1.0 (local)";
+        badgeConfig.coreOwnerRepo = "darwinscat/felitronics-core";
+        felitronics::appkit::VersionBadge badge (c, badgeConfig, "Standalone");
         ok (badge.getTooltip().startsWith ("Appkit Gate v") && badge.getTooltip().contains ("(Standalone)"),
             "version badge tooltip derives from Config + checker");
 
@@ -306,7 +312,9 @@ int main (int argc, char** argv)
                                             .attention  = juce::Colour (0xffff8822),
                                             .text       = juce::Colour (0xffd8d8d8),
                                             .textDim    = juce::Colour (0x99ffffff),
-                                            .activeText = juce::Colours::white };
+                                            .activeText = juce::Colours::white,
+                                            .display    = {},
+                                            .tracking   = 0.0f };
 
         RichMark                mark;
         chrome::BrandBlister    blister   { metrics, theme };
