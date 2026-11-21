@@ -15,6 +15,11 @@
 // forever), whatever today's date is — a version once covered stays covered.
 //
 // Days are whole days since 1970-01-01 (UTC), as 16 bits: enough until 2149. kForever (0xffff) covers every version.
+//
+// The plain types (Key, Verdict, Status, the day arithmetic) are in LicenceTypes.h, which needs neither JUCE nor
+// Monocypher.
+
+#include <felitronics/appkit/LicenceTypes.h>
 
 #include <monocypher-ed25519.h>
 
@@ -31,41 +36,6 @@ namespace felitronics::appkit::licence
 using Bytes     = std::vector<std::uint8_t>;
 using PublicKey = std::array<std::uint8_t, 32>;
 using Seed      = std::array<std::uint8_t, 32>;   // the private half: only where keys are issued, never in a product
-
-inline constexpr std::uint16_t kForever = 0xffff;
-
-// Why the key was given. Numbers are fixed once issued; a product shows an unknown one as a plain licence.
-namespace kind
-{
-inline constexpr std::uint8_t bought = 0, student = 1, musician = 2, link = 3, music = 4, gift = 5;
-}
-
-struct Key
-{
-    std::string   product;             // the product's id: [a-z0-9-], 1..32 characters, e.g. "orbit480"
-    std::string   name;                // UTF-8, up to 120 bytes (may be empty)
-    std::string   email;               // UTF-8, up to 120 bytes (may be empty)
-    std::uint32_t number       = 0;    // the key's number
-    std::uint16_t issued       = 0;    // the purchase (or gift) day
-    std::uint16_t updatesUntil = 0;    // the last release day covered; kForever = every version
-    std::uint8_t  kind         = kind::bought;
-
-    bool operator== (const Key&) const = default;
-};
-
-enum class Verdict
-{
-    valid,          // signed by us, for this product
-    damaged,        // anything else: not a key, cut short, a character changed, signed by someone else
-    otherProduct,   // a genuine key for another product (Reading::key says which)
-    newerFormat     // a genuine key in a format this build does not know yet: a newer build reads it
-};
-
-struct Reading
-{
-    Verdict verdict = Verdict::damaged;
-    Key     key;    // filled for valid and otherProduct
-};
 
 namespace detail
 {
@@ -271,41 +241,4 @@ inline Reading read (std::string_view pasted, const PublicKey& publicKey, std::s
     return r;
 }
 
-/** Does the key cover a version released on `releaseDay`? */
-inline bool covers (const Key& k, std::uint16_t releaseDay) noexcept
-{
-    return k.updatesUntil == kForever || releaseDay <= k.updatesUntil;
-}
-
-/** Days since 1970-01-01 for a civil date (proleptic Gregorian; H. Hinnant's days_from_civil). */
-constexpr std::int32_t dayFromCivil (std::int32_t y, std::uint32_t m, std::uint32_t d) noexcept
-{
-    y -= m <= 2 ? 1 : 0;
-    const std::int32_t era = (y >= 0 ? y : y - 399) / 400;
-    const auto yoe = static_cast<std::uint32_t> (y - era * 400);
-    const std::uint32_t doy = (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1;
-    const std::uint32_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    return era * 146097 + static_cast<std::int32_t> (doe) - 719468;
-}
-
-/** Where a product stands: in the trial, the demo after it, licensed, or licensed for older versions only. */
-struct Status
-{
-    enum class State { trial, demo, licensed, updatesOver };
-    State state = State::trial;
-    int   trialDaysLeft = 0;   // trial only: 1..trialDays
-};
-
-/** `key` is a valid key for this product (or none); `firstRun` and `today` are days on this computer's clock;
-    `releaseDay` is this build's release day. Without a key: the trial, then the demo. A key whose updates ended
-    before this release: `updatesOver` at once, which the product shows as the demo plus the renewal offer. A clock
-    set before the first run reads as the first day. */
-inline Status status (const std::optional<Key>& key, std::int32_t firstRun, std::int32_t today, std::uint16_t releaseDay,
-                      int trialDays = 30) noexcept
-{
-    if (key && covers (*key, releaseDay)) return { Status::State::licensed, 0 };
-    const auto used = today < firstRun ? 0 : today - firstRun;
-    if (used < trialDays && ! key) return { Status::State::trial, trialDays - used };
-    return { key ? Status::State::updatesOver : Status::State::demo, 0 };
-}
 } // namespace felitronics::appkit::licence
