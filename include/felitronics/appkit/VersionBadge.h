@@ -6,11 +6,14 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <felitronics/appkit/Brand.h>           // brand::drawOrbit — the family-default title mark
 #include <felitronics/appkit/CallOut.h>         // launchCallOut — editor-parented CallOutBox
+#include <felitronics/appkit/I18n.h>            // every sentence the window says, in the site's twelve languages
+#include <felitronics/appkit/LicencePages.h>    // a paid product's licence block and its two pages
 #include <felitronics/appkit/UpdateChecker.h>   // the opt-in GitHub-release check this badge fronts
 
 #include <cmath>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -21,6 +24,14 @@
 // (with GitHub links for the version / commit / core), and an opt-in "Check for updates" button
 // (the ONLY thing that hits the network — never silent). Extracted verbatim from OrbitCab's
 // ui/VersionBadge.h; everything product-specific moved into Config.
+//
+// The window speaks the system's language (see I18n.h): its own sentences, and the Config's update note and feed
+// prompt while they are the defaults (a product's own wording is shown as it is). Names, versions, the table and
+// the addresses never change.
+//
+// A paid product sets Config::purchase: the "Feed the Cat" block gives its place to the licence block (the trial,
+// the key, "Buy"), and "Enter key" and "Ask for a free licence" open as pages of the same window, with "Back".
+// Without it the window is exactly the free product's.
 //
 // The checker reference is the product's thin UpdateChecker adapter (see UpdateChecker.h) — the
 // badge derives its repo links from the SAME slug the checker queries, so they can never drift.
@@ -143,14 +154,26 @@ public:
         juce::String feedPrompt = "Like the app?";
         juce::String feedLabel  = "Feed the Cat";
         juce::String feedUrl    = brand::feedTheCatUrl;
+
+        // A PAID product's licence (not to be confused with `licence` above, the text of the software licence):
+        // where it stands, how to buy, how to enter a key, where a free-licence letter goes. Set, it replaces the
+        // "Feed the Cat" block with the licence block, and the window gains its two pages; unset (the default), the
+        // window is the free product's, child for child. The badge never stores a key: the product's functions do.
+        std::optional<licence::Purchase> purchase;
     };
+
+    // The window's pages. A free product has only the main one.
+    enum class Page { main, enterKey, freeLicence };
 
     VersionBadge (UpdateChecker& uc, Config cfg, juce::String pluginFormat)
         : checker (uc), config (std::move (cfg)), format (std::move (pluginFormat))
     {
         jassert (config.productName.isNotEmpty());   // no name, no badge
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
-        setTooltip (config.productName + " " + displayVersionTag (checker.currentVersion()) + " (" + format + ") — click to check for updates");
+        setTooltip (i18n::fill (i18n::tr ("{product} {version} ({format}) \xe2\x80\x94 click to check for updates"),
+                                { { "product", config.productName },
+                                  { "version", displayVersionTag (checker.currentVersion()) },
+                                  { "format",  format } }));
     }
 
     // The editor supplies the embedded brand typeface (loaded once for the header) so the popover's
@@ -197,7 +220,7 @@ public:
     // the badge can stay invisible and simply own the config + the checker wiring. Message thread
     // only, like every other entry point here. Defined below the class: the panel it builds is a
     // private nested type.
-    void showPopup();
+    void showPopup (Page page = Page::main);
 
     // The same window, presented as an ABOUT dialog: centred on the editor, on a dimmed ground, with
     // a close cross — what a call-out stops being able to do once it carries a table. Click outside
@@ -208,7 +231,10 @@ public:
     // An editor that renders through its own GPU surface has to name ITSELF: that surface lies over
     // everything in the window that is not its own child, and a dialog hung on the window opens
     // underneath it, where nobody will ever see it.
-    void showAbout (juce::Component* over = nullptr);
+    //
+    // `page` opens it straight on a page — the after-trial card's "Enter key" and "Ask for a free licence" do. A free
+    // product has no pages and opens on the main one whatever is asked.
+    void showAbout (juce::Component* over = nullptr, Page page = Page::main);
 
 private:
     // Rendered width of `s` in font `f` (dot position / hand layout in the popover).
@@ -469,13 +495,13 @@ private:
             productHit.url = juce::URL (config.productUrl);
             addAndMakeVisible (productHit);
 
-            check.setButtonText ("Check for updates");
+            check.setButtonText (i18n::tr ("Check for updates"));
             check.onClick = [this] { runCheck(); };
             addAndMakeVisible (check);
 
             // The consent switch for the automatic path, beside the button it automates. Off unless
             // the user turned it on; the checker persists it (see UpdateChecker::setAutoCheckEnabled).
-            autoCheck.setButtonText ("Automatically, once a day");
+            autoCheck.setButtonText (i18n::tr ("Automatically, once a day"));
             autoCheck.setToggleState (chk.autoCheckEnabled(), juce::dontSendNotification);
             autoCheck.setColour (juce::ToggleButton::textColourId, ink);
             autoCheck.setColour (juce::ToggleButton::tickColourId, config.accentHover);
@@ -497,15 +523,15 @@ private:
             juce::Font dl { juce::FontOptions (kTextH) };
             dl.setUnderline (true);
             download.setFont (dl, false, juce::Justification::centredLeft);
-            download.setButtonText ("Download");
+            download.setButtonText (i18n::tr ("Download"));
             download.setColour (juce::HyperlinkButton::textColourId, config.accentB);
             addChildComponent (download);   // hidden until an update is actually available
 
-            if (config.feedUrl.isNotEmpty())
+            if (showFeed)
             {
                 if (config.feedPrompt.isNotEmpty())
                 {
-                    feedPrompt.setText (config.feedPrompt, juce::dontSendNotification);
+                    feedPrompt.setText (i18n::tr (config.feedPrompt), juce::dontSendNotification);
                     feedPrompt.setFont (juce::FontOptions (kFeedH));
                     feedPrompt.setJustificationType (juce::Justification::centredLeft);
                     feedPrompt.setColour (juce::Label::textColourId, ink);
@@ -532,7 +558,7 @@ private:
 
             closeBtn.onClick = [this] { if (onClose) onClose(); };
             closeBtn.setMouseCursor (juce::MouseCursor::PointingHandCursor);
-            closeBtn.setTooltip ("Close");
+            closeBtn.setTooltip (i18n::tr ("Close"));
             addChildComponent (closeBtn);   // shown only when a host hands us an onClose
 
 
@@ -547,9 +573,9 @@ private:
                 addAndMakeVisible (noticeText);
             }
 
-            note.setText (config.updateNote, juce::dontSendNotification);
-            note.setTooltip (config.updateNoteDetail);
-            autoCheck.setTooltip (config.updateNoteDetail);
+            note.setText (i18n::tr (config.updateNote), juce::dontSendNotification);
+            note.setTooltip (i18n::tr (config.updateNoteDetail));
+            autoCheck.setTooltip (i18n::tr (config.updateNoteDetail));
             note.setFont (juce::FontOptions (kTextH));
             note.setColour (juce::Label::textColourId, juce::Colour (0xff60606a));
             addAndMakeVisible (note);
@@ -561,7 +587,7 @@ private:
 
             // The prompt and the paw are one sentence — "Like the plugin? 🐾 Feed the Cat" — so they
             // share a row and the block costs exactly that row.
-            const int feedRows = config.feedUrl.isNotEmpty() ? kFeedRowH : 0;
+            const int feedRows = showFeed ? kFeedRowH : 0;
             // The TABLE sets the width: it is the widest thing in the window, and a grid that has to
             // wrap is not a grid. kMinWidth keeps the chrome from collapsing when the table is tiny.
             const int width = juce::jmax (kMinWidth, 28 + 2 * kBoxPad + tableW);
@@ -589,6 +615,10 @@ private:
             // it speaks or not: a window that grew by a row when the cursor found a link would move
             // that link out from under the cursor that was asking about it.
             setSize (width, 250 + kStatusAir + kFeedGap + (int) rows.size() * kRowH + feedRows + noticeH);
+            baseHeight = getHeight();
+
+            if (config.purchase.has_value())
+                buildLicence();
 
             // Where a link goes is the panel's business to say. A HyperlinkButton hands its URL to
             // the host's TooltipWindow, which lives in a different layer: in an About window it
@@ -600,8 +630,88 @@ private:
                     watchLink (*hl);
 
             watchLink (productHit);
-            if (config.feedUrl.isNotEmpty())
+            if (showFeed)
                 watchLink (pawBtn);
+            if (licenceBlock != nullptr)
+                watchLink (licenceBlock->buy);
+        }
+
+        //--- the licence (a paid product only) ---------------------------------------------------
+        // Built after the free window is complete and sized, so a free product's window is the same component
+        // tree it always was; the block takes the feed row's place at the foot, the pages lie over everything under
+        // the title and paint their own ground.
+        void buildLicence()
+        {
+            const licence::Look look { config.accent, config.accentHover, config.accentB, config.text, config.ground,
+                                       juce::Colour (0xff9a9aa4) };
+            licenceBlock = std::make_unique<licence::LicenceBlock> (look, config.productName);
+            licenceBlock->onEnterKey    = [this] { showPage (Page::enterKey); };
+            licenceBlock->onFreeLicence = [this] { showPage (Page::freeLicence); };
+            licenceBlock->launch        = [this] (const juce::URL& u) { if (launch) launch (u); };
+            addAndMakeVisible (*licenceBlock);
+
+            enterKeyPage = std::make_unique<licence::EnterKeyPage> (look, config.productName);
+            enterKeyPage->onBack     = [this] { showPage (Page::main); };
+            enterKeyPage->onLicensed = [this] { refreshLicence(); };
+            enterKeyPage->enterKey   = [this] (const juce::String& pasted) -> std::optional<licence::Reading>
+            {
+                if (owner == nullptr || ! config.purchase->enterKey)   // the product's state may be gone with the badge
+                    return std::nullopt;
+                return config.purchase->enterKey (pasted);
+            };
+            addChildComponent (*enterKeyPage);
+
+            freeLicencePage = std::make_unique<licence::FreeLicencePage> (look, config.productName, config.purchase->freeLicenceTo);
+            freeLicencePage->onBack = [this] { showPage (Page::main); };
+            freeLicencePage->launch = [this] (const juce::URL& u) { if (launch) launch (u); };
+            addChildComponent (*freeLicencePage);
+
+            refreshLicence();
+        }
+
+        // The block says what the product's standing is NOW (a key entered on the page shows on the way back).
+        void refreshLicence()
+        {
+            if (licenceBlock == nullptr)
+                return;
+            if (owner != nullptr && config.purchase->standing)
+                licenceBlock->refresh (config.purchase->standing(), *config.purchase);
+            licenceH = licenceBlock->heightFor (getWidth() - 28);
+            if (page == Page::main)
+                setSize (getWidth(), baseHeight + licenceH);
+            resized();
+        }
+
+        // The pages are the same window: it grows to the page when the page needs more, and goes back on "Back".
+        void showPage (Page p)
+        {
+            if (licenceBlock == nullptr)   // a free product has only the main page
+                return;
+            page = p;
+
+            enterKeyPage->setVisible (p == Page::enterKey);
+            freeLicencePage->setVisible (p == Page::freeLicence);
+            if (p == Page::main)
+            {
+                refreshLicence();
+            }
+            else
+            {
+                juce::Component& shown = p == Page::enterKey ? static_cast<juce::Component&> (*enterKeyPage)
+                                                             : static_cast<juce::Component&> (*freeLicencePage);
+                const int need = p == Page::enterKey ? enterKeyPage->heightFor (getWidth() - 16)
+                                                     : freeLicencePage->heightFor (getWidth() - 16);
+                setSize (getWidth(), juce::jmax (baseHeight + licenceH, kPageTop + need + 8));
+                shown.toFront (false);
+                if (p == Page::enterKey)
+                {
+                    enterKeyPage->clearAnswer();
+                    if (enterKeyPage->isShowing())   // the key is pasted next: the box takes it without a click
+                        enterKeyPage->box.grabKeyboardFocus();
+                }
+            }
+            resized();
+            repaint();
         }
 
         // Take the link off the host's tooltip and put it on ours. The URL is read back at HOVER
@@ -618,6 +728,7 @@ private:
             if (auto* hl = dynamic_cast<juce::HyperlinkButton*> (c)) return hl->getURL().toString (true);
             if (c == &productHit)                                    return productHit.url.toString (true);
             if (c == &pawBtn)                                        return feedUrl.toString (true);
+            if (licenceBlock != nullptr && c == &licenceBlock->buy)  return licenceBlock->buyTarget.toString (true);
             return {};
         }
 
@@ -723,6 +834,9 @@ private:
                 g.drawLine (c.getX(), c.getBottom(), c.getRight(), c.getY(), 1.6f);
             }
 
+            if (page != Page::main)   // a page lies over the rest; the table's frame would show round its edges
+                return;
+
             // The table reads as a table — and the box IS the click target that copies it.
             const auto box = stampArea.toFloat();
             g.setColour (juce::Colours::black.withAlpha (0.22f));
@@ -758,7 +872,7 @@ private:
             {
                 g.setColour (config.accentB);
                 g.setFont (juce::FontOptions (kTextH));
-                g.drawText (juce::String::fromUTF8 ("copied \xe2\x9c\x93"),
+                g.drawText (i18n::tr ("copied \xe2\x9c\x93"),
                             stampArea.reduced (kBoxPad, 4), juce::Justification::bottomRight, false);
             }
 
@@ -891,9 +1005,19 @@ private:
                 if (download.isVisible()) download.setBounds (rowU);
                 else                      result  .setBounds (rowU);
             }
+            if (enterKeyPage != nullptr)   // the pages: everything under the title, inside the window's border
+            {
+                const auto pageArea = getLocalBounds().reduced (8).withTop (kPageTop);
+                enterKeyPage->setBounds (pageArea);
+                freeLicencePage->setBounds (pageArea);
+            }
+
             if (noticeText.isVisible())   // under the feed row, above the address line — the last
                                           // block of the window's content, not the window's last row
                 noticeText.setBounds (r.removeFromBottom (noticeH).withTrimmedTop (kNoticeGap));
+
+            if (licenceBlock != nullptr)   // a paid product: the licence takes the feed row's place
+                licenceBlock->setBounds (r.removeFromBottom (licenceH));
 
             if (feed.isVisible())
             {
@@ -927,7 +1051,7 @@ private:
             if (e.mods.isPopupMenu())
             {
                 juce::PopupMenu m;
-                m.addItem (1, "Copy build stamp");
+                m.addItem (1, i18n::tr ("Copy build stamp"));
                 m.showMenuAsync (juce::PopupMenu::Options().withMousePosition(),
                                  [safe = juce::Component::SafePointer<Panel> (this)] (int r)
                                  {
@@ -987,7 +1111,7 @@ private:
 
             check.setEnabled (false);
             result.setColour (juce::Label::textColourId, juce::Colour (0xff9a9aa4));
-            result.setText (juce::String::fromUTF8 ("Checking\xe2\x80\xa6"), juce::dontSendNotification);
+            result.setText (i18n::tr ("Checking\xe2\x80\xa6"), juce::dontSendNotification);
             download.setVisible (false);
             result.setVisible (true);
             resized();                                   // the verdict's row is measured, not fixed
@@ -1008,7 +1132,7 @@ private:
             if (! res.ok)
             {
                 result.setColour (juce::Label::textColourId, juce::Colour (0xffb0b0b8));
-                result.setText (juce::String::fromUTF8 ("Couldn\xe2\x80\x99t check (offline?)"), juce::dontSendNotification);
+                result.setText (i18n::tr ("Couldn\xe2\x80\x99t check (offline?)"), juce::dontSendNotification);
                 result.setVisible (true);
                 resized();
                 return;
@@ -1018,7 +1142,7 @@ private:
             else
             {
                 result.setColour (juce::Label::textColourId, juce::Colour (0xff7be29a));   // green
-                result.setText (juce::String::fromUTF8 ("\xe2\x9c\x93 Up to date"), juce::dontSendNotification);
+                result.setText (i18n::tr ("\xe2\x9c\x93 Up to date"), juce::dontSendNotification);
                 result.setVisible (true);
                 resized();
             }
@@ -1030,9 +1154,9 @@ private:
             // UpdateCompare), so a working-tree build is ALWAYS "outdated" — and telling its owner
             // that v0.6.0 updates their v0.6.0 reads as a bug. Same fact, honest wording.
             result.setVisible (false);
-            download.setButtonText ((isRelease ? juce::String::fromUTF8 ("\xe2\x86\x91 Update available: v")
-                                               : juce::String ("Latest release: v")) + latest
-                                    + juce::String::fromUTF8 ("  \xe2\x80\x94  Download"));
+            download.setButtonText (i18n::fill (isRelease ? i18n::tr ("\xe2\x86\x91 Update available: v{version}  \xe2\x80\x94  Download")
+                                                          : i18n::tr ("Latest release: v{version}  \xe2\x80\x94  Download"),
+                                                { { "version", latest } }));
             download.setURL (url);
             download.setTooltip ({});   // setURL() re-arms JUCE's own tooltip behind watchLink's back
             download.setVisible (true);
@@ -1146,6 +1270,20 @@ private:
         juce::ToggleButton    autoCheck;
 
         juce::TextButton      check;
+
+        // A paid product's licence block and pages; null in a free product.
+        const bool            showFeed = config.feedUrl.isNotEmpty() && ! config.purchase.has_value();
+        std::unique_ptr<licence::LicenceBlock>    licenceBlock;
+        std::unique_ptr<licence::EnterKeyPage>    enterKeyPage;
+        std::unique_ptr<licence::FreeLicencePage> freeLicencePage;
+        Page                  page = Page::main;
+        int                   baseHeight = 0;               // the window without the licence block
+        int                   licenceH = 0;                 // the block's measured height for the current standing
+        static constexpr int  kPageTop = 12 + kTitleH + 8;  // where a page starts: under the title row
+
+        // How the licence buttons open an address (the shop, the renewal, the mail app). A seam for the tests,
+        // which must never launch anything.
+        std::function<void (const juce::URL&)> launch = [] (const juce::URL& u) { u.launchInDefaultBrowser(); };
     };
 
     // The dimmed ground the About dialog sits on: it follows the window it covers, swallows the
@@ -1187,6 +1325,9 @@ private:
 
         void componentMovedOrResized (juce::Component& c, bool, bool) override { setBounds (c.getLocalBounds()); }
 
+        // A paid product's window changes height with its page; it stays centred.
+        void childBoundsChanged (juce::Component*) override { resized(); }
+
         std::unique_ptr<Panel> panel;
         juce::Component&       covered;
         std::function<void()>  onDismiss;
@@ -1201,21 +1342,24 @@ private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VersionBadge)
 };
 
-inline void VersionBadge::showPopup()
+inline void VersionBadge::showPopup (Page page)
 {
-    launchCallOut (*this, std::make_unique<Panel> (*this, config, format, brandTypeface));
+    auto panel = std::make_unique<Panel> (*this, config, format, brandTypeface);
+    panel->showPage (page);
+    launchCallOut (*this, std::move (panel));
 }
 
-inline void VersionBadge::showAbout (juce::Component* over)
+inline void VersionBadge::showAbout (juce::Component* over, Page page)
 {
     auto* top = over != nullptr ? over : getTopLevelComponent();
     if (top == nullptr || top == this)
     {
-        showPopup();          // nothing to centre on — fall back to the call-out
+        showPopup (page);     // nothing to centre on — fall back to the call-out
         return;
     }
 
     auto panel = std::make_unique<Panel> (*this, config, format, brandTypeface);
+    panel->showPage (page);
     auto* raw  = panel.get();
     about = std::make_unique<AboutOverlay> (std::move (panel), *top);
 

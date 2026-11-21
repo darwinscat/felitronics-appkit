@@ -538,6 +538,46 @@ if(FELITRONICS_APPKIT_TESTS_WITH_JUCE)
     endif()
     add_test(NAME appkit_i18n_tests COMMAND appkit_i18n_tests)
 
+    # The licence screens (LicencePages.h, LicenceNotice.h, the purchase half of VersionBadge.h) and the store
+    # (LicenceStore.h). A free product's window is compared with the one before the change (tests/base/), keys are
+    # issued with the TEST seed, and nothing is ever launched: the screens open addresses through a seam.
+    foreach(_t licence_about licence_store)
+        if(_t STREQUAL "licence_about")
+            set(_src tests/LicenceAboutTests.cpp)
+        else()
+            set(_src tests/LicenceStoreTests.cpp)
+        endif()
+        add_executable(appkit_${_t}_tests ${_src})
+        target_link_libraries(appkit_${_t}_tests PRIVATE
+            felitronics::appkit_licence
+            juce::juce_events juce::juce_data_structures juce::juce_gui_basics
+            juce::juce_recommended_warning_flags)
+        target_compile_definitions(appkit_${_t}_tests PRIVATE
+            JUCE_STANDALONE_APPLICATION=1
+            JUCE_USE_CURL=0
+            JUCE_WEB_BROWSER=0
+            JUCE_MODAL_LOOPS_PERMITTED=1)
+        target_compile_features(appkit_${_t}_tests PRIVATE cxx_std_20)
+        if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+            target_compile_options(appkit_${_t}_tests PRIVATE -Werror)
+        endif()
+        add_test(NAME appkit_${_t}_tests COMMAND appkit_${_t}_tests)
+    endforeach()
+
+    # Pictures of the licence screens for review, rendered offscreen (no window is opened, nothing is launched):
+    # `appkit_licence_shots <dir>` writes PNGs there. A tool, not a test: built only when asked for by name.
+    add_executable(appkit_licence_shots EXCLUDE_FROM_ALL tests/LicenceShots.cpp)
+    target_link_libraries(appkit_licence_shots PRIVATE
+        felitronics::appkit_licence
+        juce::juce_events juce::juce_data_structures juce::juce_gui_basics
+        juce::juce_recommended_warning_flags)
+    target_compile_definitions(appkit_licence_shots PRIVATE
+        JUCE_STANDALONE_APPLICATION=1
+        JUCE_USE_CURL=0
+        JUCE_WEB_BROWSER=0
+        JUCE_MODAL_LOOPS_PERMITTED=1)
+    target_compile_features(appkit_licence_shots PRIVATE cxx_std_20)
+
     add_executable(appkit_consumer_compile_check tests/ConsumerCompileCheck.cpp)
     target_link_libraries(appkit_consumer_compile_check PRIVATE
         felitronics::appkit
