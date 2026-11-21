@@ -81,6 +81,7 @@ int main (int argc, char** argv)
     purchase.buyUrl = "https://darwinscat.com/orbit480/buy";
     purchase.renewUrl = "https://darwinscat.com/orbit480/renew";
     purchase.freeLicenceTo = "licences@darwinscat.com";
+    purchase.productId = "orbit480";
     cfg.purchase = purchase;
 
     for (const auto& lang : langs)
@@ -121,6 +122,12 @@ int main (int argc, char** argv)
         LicenceNotice card (cc);
         card.setVisible (true);
         save (card, dir.getChildFile ("card-" + lang + ".png"));
+        cc.updatesOver = true;
+        cc.updatesUntil = ivan.updatesUntil;
+        cc.renewUrl = "https://darwinscat.com/orbit480/renew";
+        LicenceNotice renewal (cc);
+        renewal.setVisible (true);
+        save (renewal, dir.getChildFile ("card-updatesover-" + lang + ".png"));
     }
 
     // A free product's window, for comparison: the same window it always was.

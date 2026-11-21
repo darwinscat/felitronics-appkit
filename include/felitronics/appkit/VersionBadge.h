@@ -135,10 +135,14 @@ public:
         // in it on purpose: a button and an unticked box already say that, in the only language a
         // reader trusts. `updateNoteDetail` rides the tooltip of both the note and the switch, where
         // the part that matters legally (a third party sees an IP) is one hover away.
-        juce::String updateNote = "Asks GitHub for the latest release. Nothing is sent to us.";
-        juce::String updateNoteDetail =
+        //
+        // The defaults speak the reader's language; a product's own wording is shown exactly as written.
+        static constexpr const char* kDefaultUpdateNote = "Asks GitHub for the latest release. Nothing is sent to us.";
+        static constexpr const char* kDefaultUpdateNoteDetail =
             "The request goes to github.com, which sees your IP address and this product's name and "
             "version. Nothing reaches the maker, and the versions are compared here on your machine.";
+        juce::String updateNote       = kDefaultUpdateNote;
+        juce::String updateNoteDetail = kDefaultUpdateNoteDetail;
 
         // A product's OWN small print, under everything else the window has to say (only the address
         // line sits lower, and that one is chrome): a trademark notice, an attribution, a
@@ -151,7 +155,8 @@ public:
         // print + hyperlink opening the family tip jar. ON by default so every product inherits
         // it with an appkit bump; an empty feedUrl hides the whole block and the popup shrinks
         // back, an empty feedPrompt drops just the prompt line.
-        juce::String feedPrompt = "Like the app?";
+        static constexpr const char* kDefaultFeedPrompt = "Like the app?";
+        juce::String feedPrompt = kDefaultFeedPrompt;   // translated while it is the default, as the notes are
         juce::String feedLabel  = "Feed the Cat";
         juce::String feedUrl    = brand::feedTheCatUrl;
 
@@ -531,7 +536,7 @@ private:
             {
                 if (config.feedPrompt.isNotEmpty())
                 {
-                    feedPrompt.setText (i18n::tr (config.feedPrompt), juce::dontSendNotification);
+                    feedPrompt.setText (ownOrDefault (config.feedPrompt, Config::kDefaultFeedPrompt), juce::dontSendNotification);
                     feedPrompt.setFont (juce::FontOptions (kFeedH));
                     feedPrompt.setJustificationType (juce::Justification::centredLeft);
                     feedPrompt.setColour (juce::Label::textColourId, ink);
@@ -573,9 +578,9 @@ private:
                 addAndMakeVisible (noticeText);
             }
 
-            note.setText (i18n::tr (config.updateNote), juce::dontSendNotification);
-            note.setTooltip (i18n::tr (config.updateNoteDetail));
-            autoCheck.setTooltip (i18n::tr (config.updateNoteDetail));
+            note.setText (ownOrDefault (config.updateNote, Config::kDefaultUpdateNote), juce::dontSendNotification);
+            note.setTooltip (ownOrDefault (config.updateNoteDetail, Config::kDefaultUpdateNoteDetail));
+            autoCheck.setTooltip (ownOrDefault (config.updateNoteDetail, Config::kDefaultUpdateNoteDetail));
             note.setFont (juce::FontOptions (kTextH));
             note.setColour (juce::Label::textColourId, juce::Colour (0xff60606a));
             addAndMakeVisible (note);
@@ -647,23 +652,26 @@ private:
             licenceBlock = std::make_unique<licence::LicenceBlock> (look, config.productName);
             licenceBlock->onEnterKey    = [this] { showPage (Page::enterKey); };
             licenceBlock->onFreeLicence = [this] { showPage (Page::freeLicence); };
-            licenceBlock->launch        = [this] (const juce::URL& u) { if (launch) launch (u); };
+            licenceBlock->launch        = [this] (const juce::URL& u) { return launch && launch (u); };
             addAndMakeVisible (*licenceBlock);
 
-            enterKeyPage = std::make_unique<licence::EnterKeyPage> (look, config.productName);
+            enterKeyPage = std::make_unique<licence::EnterKeyPage> (look, config.productName, config.purchase->productId);
             enterKeyPage->onBack     = [this] { showPage (Page::main); };
             enterKeyPage->onLicensed = [this] { refreshLicence(); };
             enterKeyPage->enterKey   = [this] (const juce::String& pasted) -> std::optional<licence::Reading>
             {
                 if (owner == nullptr || ! config.purchase->enterKey)   // the product's state may be gone with the badge
                     return std::nullopt;
-                return config.purchase->enterKey (pasted);
+                // Called from a copy: the product may close the window from inside it, and this panel (whose Config
+                // holds the function) goes with the window.
+                const auto enterKey = config.purchase->enterKey;
+                return enterKey (pasted);
             };
             addChildComponent (*enterKeyPage);
 
             freeLicencePage = std::make_unique<licence::FreeLicencePage> (look, config.productName, config.purchase->freeLicenceTo);
             freeLicencePage->onBack = [this] { showPage (Page::main); };
-            freeLicencePage->launch = [this] (const juce::URL& u) { if (launch) launch (u); };
+            freeLicencePage->launch = [this] (const juce::URL& u) { return launch && launch (u); };
             addChildComponent (*freeLicencePage);
 
             refreshLicence();
@@ -693,6 +701,7 @@ private:
             freeLicencePage->setVisible (p == Page::freeLicence);
             if (p == Page::main)
             {
+                uncoverMain();
                 refreshLicence();
             }
             else
@@ -701,17 +710,66 @@ private:
                                                              : static_cast<juce::Component&> (*freeLicencePage);
                 const int need = p == Page::enterKey ? enterKeyPage->heightFor (getWidth() - 16)
                                                      : freeLicencePage->heightFor (getWidth() - 16);
+                coverMain();
                 setSize (getWidth(), juce::jmax (baseHeight + licenceH, kPageTop + need + 8));
                 shown.toFront (false);
                 if (p == Page::enterKey)
                 {
                     enterKeyPage->clearAnswer();
-                    if (enterKeyPage->isShowing())   // the key is pasted next: the box takes it without a click
-                        enterKeyPage->box.grabKeyboardFocus();
+                    enterKeyPage->focusBox();   // the key is pasted next: the box takes it without a click
                 }
             }
             resized();
             repaint();
+        }
+
+        // The title row stays (the close cross, the two halves of the lockup); everything under it hides behind a page.
+        bool isMainControl (const juce::Component* c) const
+        {
+            return c != enterKeyPage.get() && c != freeLicencePage.get() && c != &closeBtn && c != &productHit && c != &link;
+        }
+
+        void coverMain()
+        {
+            if (! mainShown.empty())
+                return;
+            for (auto* c : getChildren())
+                if (isMainControl (c))
+                {
+                    mainShown.emplace_back (c, c->isVisible());
+                    c->setVisible (false);
+                }
+        }
+
+        void uncoverMain()
+        {
+            for (auto& [c, shown] : mainShown)
+                c->setVisible (shown);
+            mainShown.clear();
+        }
+
+        // An update check that lands while a page is up changes the hidden controls as if they were showing; they go
+        // back under the page after it.
+        struct Uncovered
+        {
+            explicit Uncovered (Panel& p) : panel (p), covered (! p.mainShown.empty()) { if (covered) panel.uncoverMain(); }
+            ~Uncovered() { if (covered) panel.coverMain(); }
+            Panel&     panel;
+            const bool covered;
+            JUCE_DECLARE_NON_COPYABLE (Uncovered)
+        };
+
+        // Typed text on a page is not thrown away by a stray click beside the window.
+        bool holdsTypedText() const
+        {
+            return (page == Page::enterKey && enterKeyPage != nullptr && enterKeyPage->holdsTypedText())
+                || (page == Page::freeLicence && freeLicencePage != nullptr && freeLicencePage->holdsTypedText());
+        }
+
+        // A Config string is translated only while it is the default English text; a product's own words stay.
+        static juce::String ownOrDefault (const juce::String& value, const char* defaultText)
+        {
+            return value == juce::String (defaultText) ? i18n::tr (defaultText) : value;
         }
 
         // Take the link off the host's tooltip and put it on ours. The URL is read back at HOVER
@@ -1099,6 +1157,7 @@ private:
 
         void runCheck()
         {
+            const Uncovered uncovered (*this);
             // The checker is reachable ONLY through a live badge (see the struct comment): if the
             // badge — and with it, possibly, the checker — is gone, the button goes dead instead of
             // calling through a dangling reference.
@@ -1126,6 +1185,7 @@ private:
 
         void onResult (const UpdateChecker::Result& res)
         {
+            const Uncovered uncovered (*this);
             check.setEnabled (true);
             if (owner != nullptr) owner->repaint();   // badge dot may have appeared/cleared (badge may be gone)
 
@@ -1150,6 +1210,7 @@ private:
 
         void showUpdate (const juce::String& latest, const juce::URL& url)
         {
+            const Uncovered uncovered (*this);
             // A build that is not a clean release counts as older than every release (the dev rule in
             // UpdateCompare), so a working-tree build is ALWAYS "outdated" — and telling its owner
             // that v0.6.0 updates their v0.6.0 reads as a bug. Same fact, honest wording.
@@ -1283,7 +1344,11 @@ private:
 
         // How the licence buttons open an address (the shop, the renewal, the mail app). A seam for the tests,
         // which must never launch anything.
-        std::function<void (const juce::URL&)> launch = [] (const juce::URL& u) { u.launchInDefaultBrowser(); };
+        std::function<bool (const juce::URL&)> launch = [] (const juce::URL& u) { return u.launchInDefaultBrowser(); };
+
+        // The main page's controls, hidden while a page is up (so none of them takes the keyboard behind it), with the
+        // visibility each had; given back on the way to the main page.
+        std::vector<std::pair<juce::Component*, bool>> mainShown;
     };
 
     // The dimmed ground the About dialog sits on: it follows the window it covers, swallows the
@@ -1312,14 +1377,21 @@ private:
             panel->setBounds (getLocalBounds().withSizeKeepingCentre (panel->getWidth(), panel->getHeight()));
         }
 
-        // A click that reaches the ground missed the panel — that is a dismissal everywhere else.
-        void mouseDown (const juce::MouseEvent&) override { if (onDismiss) onDismiss(); }
+        // A click that reaches the ground missed the panel — that is a dismissal everywhere else, except while a page
+        // holds typed text: a pasted key or a half-written letter is not thrown away by a click beside the window.
+        void mouseDown (const juce::MouseEvent&) override
+        {
+            if (! panel->holdsTypedText() && onDismiss)
+                onDismiss();
+        }
 
+        // Escape closes the window from its main page; from a page it goes back, as Escape in a page's box does.
         bool keyPressed (const juce::KeyPress& key) override
         {
             if (key != juce::KeyPress::escapeKey)
                 return false;
-            if (onDismiss) onDismiss();
+            if (panel->page != Page::main) panel->showPage (Page::main);
+            else if (onDismiss)            onDismiss();
             return true;
         }
 
@@ -1344,6 +1416,13 @@ private:
 
 inline void VersionBadge::showPopup (Page page)
 {
+    // A paid product's window holds a pasted key and a half-written letter, and a call-out does not keep them: JUCE
+    // dismisses a call-out as soon as the app loses focus — switching to the mail app to copy the key would throw the
+    // page away. So a paid product opens as the About dialog, which stays; a free product keeps its call-out.
+    if (config.purchase.has_value())
+        if (auto* top = getTopLevelComponent(); top != nullptr && top != this)
+            return showAbout (top, page);
+
     auto panel = std::make_unique<Panel> (*this, config, format, brandTypeface);
     panel->showPage (page);
     launchCallOut (*this, std::move (panel));
@@ -1381,6 +1460,8 @@ inline void VersionBadge::showAbout (juce::Component* over, Page page)
     top->addAndMakeVisible (*about);
     about->toFront (true);
     about->grabKeyboardFocus();
+    if (page == Page::enterKey && raw->enterKeyPage != nullptr)
+        raw->enterKeyPage->focusBox();   // after the dialog took the keyboard: the key box takes it from there
 }
 
 } // namespace felitronics::appkit

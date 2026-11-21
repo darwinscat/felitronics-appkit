@@ -170,6 +170,56 @@ static int inkedPixels (const juce::Image& a)
     return n;
 }
 
+// What is wrong with a laid-out screen: a piece outside it, two pieces on top of each other, or a one-line control
+// whose words are wider than it (they would be cut). Empty paragraphs (an answer not given yet) are skipped.
+static std::vector<std::string> layoutFaults (juce::Component& screen)
+{
+    std::vector<std::string> faults;
+    const auto kids = screen.getChildren();
+    auto shown = [] (const juce::Component* c)
+    {
+        const auto* para = dynamic_cast<const lic::Para*> (c);
+        return c->isVisible() && ! (para != nullptr && para->getText().isEmpty());
+    };
+    auto label = [] (const juce::Component* c)
+    {
+        if (auto* b = dynamic_cast<const juce::Button*> (c)) return b->getButtonText().toStdString();
+        if (auto* p = dynamic_cast<const lic::Para*> (c))    return p->getText().substring (0, 30).toStdString();
+        return std::string ("a component");
+    };
+    for (int i = 0; i < kids.size(); ++i)
+    {
+        if (! shown (kids[i])) continue;
+        if (kids[i]->getBounds().isEmpty() || ! screen.getLocalBounds().contains (kids[i]->getBounds()))
+            faults.push_back ("outside: " + label (kids[i]));
+        for (int j = i + 1; j < kids.size(); ++j)
+            if (shown (kids[j]) && kids[i]->getBounds().intersects (kids[j]->getBounds()))
+                faults.push_back ("overlap: " + label (kids[i]) + " / " + label (kids[j]));
+        if (auto* pill = dynamic_cast<const lic::PillButton*> (kids[i]); pill != nullptr && pill->idealWidth() - 20 > pill->getWidth())
+            faults.push_back ("cut: " + label (kids[i]));
+        if (auto* tl = dynamic_cast<const lic::TextLink*> (kids[i]); tl != nullptr && tl->idealWidth() - 4 > tl->getWidth())
+            faults.push_back ("cut: " + label (kids[i]));
+        if (auto* tb = dynamic_cast<const juce::ToggleButton*> (kids[i]);
+            tb != nullptr && lic::textWidth (juce::Font (juce::FontOptions (15.0f)), tb->getButtonText()) + 30.0f > (float) tb->getWidth())
+            faults.push_back ("cut: " + label (kids[i]));
+    }
+    return faults;
+}
+
+static std::string joined (const std::vector<std::string>& v)
+{
+    std::string s;
+    for (const auto& x : v) s += (s.empty() ? "" : "; ") + x;
+    return s;
+}
+
+static juce::MouseEvent clickOn (juce::Component& c)
+{
+    const auto now = juce::Time::getCurrentTime();
+    return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), {}, {}, juce::MouseInputSource::defaultPressure,
+                             0.0f, 0.0f, 0.0f, 0.0f, &c, &c, now, {}, now, 1, false);
+}
+
 // Every text a component tree shows, depth first: what the German pass must have changed.
 static void textsOf (juce::Component& c, std::vector<juce::String>& out)
 {
@@ -213,6 +263,7 @@ struct Product
         p.buyUrl        = "https://example.invalid/buy?product=orbit480&ref=about";
         p.renewUrl      = "https://example.invalid/renew?product=orbit480";
         p.freeLicenceTo = "licences@example.invalid";
+        p.productId     = "orbit480";
         return p;
     }
 };
@@ -366,7 +417,7 @@ int main()
         return cfg;
     };
     std::vector<juce::String> launched;
-    auto capture = [&] (VersionBadge::Panel& p) { p.launch = [&] (const juce::URL& u) { launched.push_back (u.toString (true)); }; };
+    auto capture = [&] (VersionBadge::Panel& p) { p.launch = [&] (const juce::URL& u) { launched.push_back (u.toString (true)); return true; }; };
 
     group ("a paid product's window: the licence block in Feed the Cat's place");
     {
@@ -485,23 +536,6 @@ int main()
         p.freeLicencePage->top.back.onClick();
         ok (p.page == VersionBadge::Page::main && ! p.freeLicencePage->isVisible() && p.getHeight() == mainH, "Back again");
 
-        // A layout that never overlaps: every child of each page inside it, and no two of them on top of each other.
-        for (juce::Component* page : { static_cast<juce::Component*> (p.enterKeyPage.get()), static_cast<juce::Component*> (p.freeLicencePage.get()) })
-        {
-            p.showPage (page == p.enterKeyPage.get() ? VersionBadge::Page::enterKey : VersionBadge::Page::freeLicence);
-            bool inside = true, apart = true;
-            const auto kids = page->getChildren();
-            for (int i = 0; i < kids.size(); ++i)
-            {
-                const auto* para = dynamic_cast<const lic::Para*> (kids[i]);
-                if (para != nullptr && para->getText().isEmpty()) continue;   // the answer line, before an answer
-                inside = inside && page->getLocalBounds().contains (kids[i]->getBounds()) && ! kids[i]->getBounds().isEmpty();
-                for (int j = i + 1; j < kids.size(); ++j)
-                    apart = apart && (! kids[i]->isVisible() || ! kids[j]->isVisible() || kids[j]->getBounds().isEmpty()
-                                      || ! kids[i]->getBounds().intersects (kids[j]->getBounds()));
-            }
-            ok (inside && apart, std::string (page == p.enterKeyPage.get() ? "Enter key" : "free licence") + ": every piece inside, none overlapping");
-        }
         p.showPage (VersionBadge::Page::main);
 
         // showAbout opens straight on a page, stays centred as the page changes the height, and a free product
@@ -673,8 +707,10 @@ int main()
         c.onNotNow = [&] { ++notNows; };
         juce::Component parent;
         parent.setSize (900, 700);
+        parent.setVisible (true);   // a window's editor is visible; the card counts only while everything above it is
         LicenceNotice card (c);
         parent.addAndMakeVisible (card);
+        ok (card.isTimerRunning() && card.getTimerInterval() == 1000, "shown: the countdown's timer runs, once a second");
 
         ok (card.title.getText() == "Orbit480 keeps playing" && card.buy.getButtonText() == u8 ("Buy Orbit480 \xc2\xb7 \xe2\x82\xac" "49"),
             "the title and the price");
@@ -692,6 +728,7 @@ int main()
         }
         card.timerCallback();
         ok (card.countLeft() == 0 && card.notNow.isEnabled() && card.notNow.getButtonText() == "Not now", "at 0: Not now");
+        ok (! card.isTimerRunning(), "...and the timer has stopped: five ticks, no more");
         card.timerCallback();
         ok (card.countLeft() == 0 && card.notNow.isEnabled(), "...and it stays there");
         card.notNow.triggerClick();
@@ -703,7 +740,31 @@ int main()
         card.timerCallback(); card.timerCallback();
         card.setVisible (false);
         card.setVisible (true);
-        ok (card.countLeft() == 5, "hidden mid-count and shown: from 5 again");
+        ok (card.countLeft() == 5 && card.isTimerRunning(), "hidden mid-count and shown: from 5 again");
+
+        // Only an ancestor hidden and shown (the product hides the area the card sits in): JUCE tells the card
+        // nothing itself, and it still starts over.
+        juce::Component grand, mid;
+        grand.setSize (900, 700); mid.setSize (900, 700);
+        grand.setVisible (true);
+        grand.addAndMakeVisible (mid);
+        LicenceNotice nested (cardConfig ("49"));
+        mid.addAndMakeVisible (nested);
+        nested.timerCallback(); nested.timerCallback(); nested.timerCallback();
+        ok (nested.countLeft() == 2, "a nested card counts down");
+        mid.setVisible (false);
+        ok (! nested.isTimerRunning(), "its parent hidden: the count stops");
+        mid.setVisible (true);
+        ok (nested.countLeft() == 5 && ! nested.notNow.isEnabled() && nested.isTimerRunning(), "its parent shown again: from 5");
+        for (int k = 0; k < 5; ++k) nested.timerCallback();
+        grand.setVisible (false);
+        grand.setVisible (true);
+        ok (nested.countLeft() == 5 && ! nested.notNow.isEnabled(), "the grandparent hidden and shown, after the count ended: from 5 again");
+        juce::Component other;
+        other.setVisible (true);
+        other.addAndMakeVisible (nested);   // moved under another parent
+        mid.setVisible (false);
+        ok (nested.isTimerRunning(), "moved away: the old parent's visibility is no longer its business");
 
         card.buy.onClick(); card.enterKey.onClick(); card.askFree.onClick();
         ok (buys == 1 && keys == 1 && asks == 1, "Buy, Enter key and Ask each call the product");
@@ -721,6 +782,296 @@ int main()
 
         LicenceNotice noPrice (cardConfig ({}));
         ok (noPrice.buy.getButtonText() == "Buy Orbit480", "no price: just Buy");
+    }
+
+    group ("a paid product opens as the About dialog (a call-out closes when the app loses focus); a free one as a call-out");
+    {
+        Checker chk ("v0.1.0");
+        juce::Component host;
+        host.setSize (1200, 1000);
+        host.setVisible (true);
+        auto callOuts = [&]
+        {
+            int n = 0;
+            for (auto* c : host.getChildren()) if (dynamic_cast<juce::CallOutBox*> (c) != nullptr) ++n;
+            return n;
+        };
+        VersionBadge paid (chk, paidConfig(), "VST3");
+        host.addAndMakeVisible (paid);
+        paid.setBounds (1000, 950, 120, 40);
+        paid.mouseUp (clickOn (paid));
+        ok (paid.about != nullptr && callOuts() == 0, "a click on a paid product's badge: the About dialog, no call-out");
+        paid.about.reset();
+        paid.showPopup (VersionBadge::Page::freeLicence);
+        ok (paid.about != nullptr && paid.about->panel->page == VersionBadge::Page::freeLicence && callOuts() == 0,
+            "showPopup on a page: the About dialog, on that page");
+        paid.about.reset();
+
+        VersionBadge free (chk, configOf<VersionBadge::Config> (0), "VST3");
+        host.addAndMakeVisible (free);
+        free.setBounds (10, 950, 120, 40);
+        free.mouseUp (clickOn (free));
+        ok (free.about == nullptr && callOuts() == 1, "a click on a free product's badge: the call-out, as before");
+        juce::ModalComponentManager::getInstance()->cancelAllModalComponents();
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+    }
+
+    group ("while a page is up, the main page's controls are hidden (no focus, no keys behind it); Back gives them back");
+    {
+        Checker chk ("v0.1.0");
+        product.now = { { lic::Status::State::trial, 23 }, std::nullopt };
+        VersionBadge badge (chk, paidConfig(), "VST3");
+        VersionBadge::Panel p (badge, paidConfig(), "VST3", nullptr);
+        capture (p);
+        std::vector<std::pair<juce::Component*, bool>> before;
+        for (auto* c : p.getChildren()) before.emplace_back (c, c->isVisible());
+        p.showPage (VersionBadge::Page::enterKey);
+        int behind = 0;
+        for (auto* c : p.getChildren())
+            if (c != p.enterKeyPage.get() && c != &p.closeBtn && c != &p.productHit && c != &p.link && c->isVisible()) ++behind;
+        ok (behind == 0, "on the key page nothing of the main page is showing (" + std::to_string (behind) + " still were)");
+        ok (! p.check.isVisible() && ! p.autoCheck.isVisible() && ! p.licenceBlock->isVisible(),
+            "the update button, its switch and the licence block among them");
+        UpdateChecker::Result news; news.ok = true; news.outdated = true; news.latest = "0.2.0";
+        p.onResult (news);
+        ok (! p.download.isVisible(), "an update found meanwhile stays under the page");
+        p.showPage (VersionBadge::Page::freeLicence);
+        ok (! p.check.isVisible(), "page to page: still hidden");
+        p.showPage (VersionBadge::Page::main);
+        bool same = true;
+        for (auto& [c, v] : before)
+            if (c != &p.download && c != &p.result && c != p.enterKeyPage.get() && c != p.freeLicencePage.get()) same = same && c->isVisible() == v;
+        ok (same, "Back: every control as it was");
+        ok (p.download.isVisible() && ! p.result.isVisible(), "...and the update found meanwhile shows");
+
+        // Escape in a page's box goes back (the message is posted, so the loop runs once).
+        p.showPage (VersionBadge::Page::enterKey);
+        p.enterKeyPage->box.keyPressed (juce::KeyPress (juce::KeyPress::escapeKey));
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (30);
+        ok (p.page == VersionBadge::Page::main, "Escape in the key box: back to the main page");
+        p.showPage (VersionBadge::Page::freeLicence);
+        p.freeLicencePage->words.keyPressed (juce::KeyPress (juce::KeyPress::escapeKey));
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (30);
+        ok (p.page == VersionBadge::Page::main, "Escape in the letter's words: back to the main page");
+
+        // The dialog: a click on the scrim keeps typed text; Escape goes back from a page and closes from the main one.
+        juce::Component host;
+        host.setSize (1200, 1000);
+        host.addAndMakeVisible (badge);
+        badge.showAbout (&host, VersionBadge::Page::enterKey);
+        auto& about = *badge.about;
+        int dismissed = 0;
+        about.onDismiss = [&] { ++dismissed; };
+        ok (about.panel->enterKeyPage->focusPending, "opened straight on the key page off screen: the box takes the keyboard once it shows");
+        about.mouseDown (clickOn (about));
+        ok (dismissed == 1, "an empty key page: a click beside the window closes it");
+        about.panel->enterKeyPage->box.setText ("-----BEGIN ORBIT480 KEY-----\nIRXU");
+        about.mouseDown (clickOn (about));
+        ok (dismissed == 1, "a pasted key: a click beside the window does not throw it away");
+        about.keyPressed (juce::KeyPress (juce::KeyPress::escapeKey));
+        ok (dismissed == 1 && about.panel->page == VersionBadge::Page::main, "Escape on a page: back, not out");
+        about.keyPressed (juce::KeyPress (juce::KeyPress::escapeKey));
+        ok (dismissed == 2, "Escape on the main page: closed");
+        about.panel->showPage (VersionBadge::Page::freeLicence);
+        about.panel->freeLicencePage->name.setText ("Zo");
+        about.mouseDown (clickOn (about));
+        ok (dismissed == 2, "a letter begun: a click beside the window does not throw it away");
+        badge.about.reset();
+    }
+
+    group ("the key page: a product that closes the window from its key function; the hint names the product's id");
+    {
+        Checker chk ("v0.1.0");
+        product.now = { { lic::Status::State::trial, 23 }, std::nullopt };
+        VersionBadge badge (chk, paidConfig(), "VST3");
+        std::unique_ptr<VersionBadge::Panel> holder;
+        auto cfg = paidConfig();
+        cfg.purchase->enterKey = [&] (const juce::String& s)
+        {
+            holder.reset();   // the product closes About once licensed — the page that asked is gone when this returns
+            return lic::read (s.toStdString(), product.pub, "orbit480");
+        };
+        holder = std::make_unique<VersionBadge::Panel> (badge, cfg, "VST3", nullptr);
+        holder->showPage (VersionBadge::Page::enterKey);
+        auto* page = holder->enterKeyPage.get();
+        page->box.setText (juce::String (*lic::issue (ivan(), kTestSeed)));
+        page->activateNow();   // must not touch the page after the call (ASan names the read when it does)
+        ok (holder == nullptr, "the window went away inside the call, and the page did not touch itself after");
+
+        auto ampCfg = paidConfig();
+        ampCfg.productName = "Orbit Amp";
+        ampCfg.purchase->productId = "orbit-amp";
+        VersionBadge::Panel amp (badge, ampCfg, "VST3", nullptr);
+        ok (amp.enterKeyPage->box.getTextToShowWhenEmpty() == "-----BEGIN ORBIT-AMP KEY-----", "the hint is the id's BEGIN line, as in the letter");
+    }
+
+    group ("an empty shop or renewal address hides its button");
+    {
+        Checker chk ("v0.1.0");
+        VersionBadge badge (chk, paidConfig(), "VST3");
+        auto cfg = paidConfig();
+        cfg.purchase->buyUrl = {};
+        cfg.purchase->renewUrl = {};
+        product.now = { { lic::Status::State::trial, 9 }, std::nullopt };
+        VersionBadge::Panel p (badge, cfg, "VST3", nullptr);
+        ok (! p.licenceBlock->buy.isVisible() && p.licenceBlock->enterKey.isVisible()
+                && p.licenceBlock->enterKey.getX() == p.licenceBlock->kPad, "trial, no shop address: no Buy; Enter key takes the first place");
+        product.now = { { lic::Status::State::updatesOver, 0 }, ivan() };
+        p.refreshLicence();
+        ok (! p.licenceBlock->buy.isVisible() && p.licenceBlock->enterKey.isVisible(), "updates over, no renewal address: no Renew");
+        ok (layoutFaults (*p.licenceBlock).empty(), "...and the block lays out clean: " + joined (layoutFaults (*p.licenceBlock)));
+    }
+
+    group ("the free licence: a few words are a few, the letter's address stays under 1800 characters, the address is on the page");
+    {
+        Checker chk ("v0.1.0");
+        VersionBadge badge (chk, paidConfig(), "VST3");
+        VersionBadge::Panel p (badge, paidConfig(), "VST3", nullptr);
+        capture (p);
+        p.showPage (VersionBadge::Page::freeLicence);
+        auto& page = *p.freeLicencePage;
+        page.words.insertTextAtCaret (juce::String::repeatedString ("word ", 120));
+        ok (page.words.getText().length() == lic::kMaxLetterWords, "the words box takes 300 characters and no more");
+        const auto letter = lic::freeLicenceLetter ("Orbit480", 0, "A", "a@b.c", {}, juce::String::repeatedString ("x", 500));
+        ok (letter.body.endsWith ("\n" + juce::String::repeatedString ("x", 300) + "\n"), "the letter keeps the first 300 characters of them");
+
+        const auto cyr = u8 ("\xd0\x96");   // two bytes, six characters encoded
+        const auto allWords = juce::String::repeatedString (cyr, lic::kMaxLetterWords);
+        page.choices[0].setToggleState (true, juce::sendNotification);
+        page.name.setText ("Zoe");
+        page.email.setText ("someone.with.a.long.address@example.invalid");
+        page.words.setText (allWords);
+        {
+            // Only the words are long: they are cut, from the end, until the address fits.
+            const auto url = page.url();
+            const auto m = decodeMailto (url);
+            const auto body = juce::String::fromUTF8 (m.body.c_str());
+            const auto words = body.fromFirstOccurrenceOf ("\r\n\r\n", false, false).trimEnd();
+            ok (url.length() <= lic::FreeLicencePage::kMaxMailto && m.shaped && m.clean,
+                "300 Cyrillic words: the address is " + std::to_string (url.length()) + " characters, at most 1800, and decodes");
+            ok (words.isNotEmpty() && words.length() < allWords.length() && allWords.startsWith (words),
+                "...what is left of the words is their beginning (" + std::to_string (words.length()) + " of 300)");
+            ok (body.contains ("Name: Zoe\r\n") && body.contains ("E-mail: someone.with.a.long.address@example.invalid"), "...name and e-mail whole");
+        }
+        page.name.setText (juce::String::repeatedString (cyr, lic::FreeLicencePage::kMaxName));
+        page.link.setText (juce::String::repeatedString (cyr, lic::FreeLicencePage::kMaxLink));
+        {
+            // Everything at its longest: the words go, then the link, then the name; the e-mail never.
+            const auto url = page.url();
+            const auto m = decodeMailto (url);
+            ok (url.length() <= lic::FreeLicencePage::kMaxMailto, "every field at its longest: " + std::to_string (url.length()) + " characters, at most 1800");
+            ok (m.shaped && m.clean && juce::String::fromUTF8 (m.body.c_str()).contains ("E-mail: someone.with.a.long.address@example.invalid"),
+                "...and still decodes, with the e-mail whole");
+        }
+
+        ok (page.addressBox.getText() == "licences@example.invalid" && page.addressBox.isReadOnly() && page.addressBox.isVisible(),
+            "the address is on the page, selectable, read-only");
+        juce::String copied;
+        page.copyText = [&] (const juce::String& s) { copied = s; };
+        page.copy.onClick();
+        ok (copied == "licences@example.invalid" && page.copy.getButtonText() == u8 ("copied \xe2\x9c\x93"), "Copy puts the address on the clipboard and says so");
+
+        page.name.setText ("Zoe");
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (30);
+        p.launch = [] (const juce::URL&) { return false; };
+        page.write.onClick();
+        ok (page.failed.isVisible() && page.failed.getText() == u8 ("No mail app opened \xe2\x80\x94 write to licences@example.invalid"),
+            "no mail app opened: the page says where to write");
+        p.launch = [] (const juce::URL&) { return true; };
+        page.write.onClick();
+        ok (! page.failed.isVisible(), "a mail app opened: the line goes");
+        ok (layoutFaults (page).empty(), "the page lays out clean: " + joined (layoutFaults (page)));
+    }
+
+    group ("a product's own wording is shown as written, even when it happens to be another sentence the window knows");
+    {
+        Checker chk ("v0.1.0");
+        auto cfg = configOf<VersionBadge::Config> (0);
+        cfg.feedPrompt = "Close";
+        cfg.updateNote = "Check for updates";
+        cfg.updateNoteDetail = "Back";
+        VersionBadge badge (chk, cfg, "VST3");
+        i18n::setLanguage ("de");
+        VersionBadge::Panel p (badge, cfg, "VST3", nullptr);
+        ok (p.feedPrompt.getText() == "Close" && p.note.getText() == "Check for updates" && p.note.getTooltip() == "Back",
+            "in German: \"Close\", \"Check for updates\", \"Back\" — as the product wrote them");
+        auto defaults = configOf<VersionBadge::Config> (0);
+        VersionBadge::Panel d (badge, defaults, "VST3", nullptr);
+        ok (d.feedPrompt.getText() != juce::String (VersionBadge::Config::kDefaultFeedPrompt)
+                && d.note.getText() != juce::String (VersionBadge::Config::kDefaultUpdateNote), "the defaults are translated");
+        i18n::setLanguage ("en");
+    }
+
+    group ("the card for a key whose updates ended: its own sentence, and the renewal");
+    {
+        auto c = cardConfig ("49");
+        c.updatesOver = true;
+        c.updatesUntil = static_cast<std::uint16_t> (lic::dayFromCivil (2027, 11, 20));
+        c.renewUrl = "https://example.invalid/renew?product=orbit480";
+        LicenceNotice card (c);
+        std::vector<juce::String> opened;
+        card.launch = [&] (const juce::URL& u) { opened.push_back (u.toString (true)); return true; };
+        ok (card.sentence.getText() == "Your year of updates ended on 2027-11-20; this version came out after it. Your licence keeps every version up to 2027-11-20.",
+            "the sentence names the day, twice");
+        ok (card.buy.isVisible() && card.buy.getButtonText() == "Renew at 50 % off", "the first button is the renewal");
+        card.buy.onClick();
+        ok (opened.size() == 1 && opened[0] == "https://example.invalid/renew?product=orbit480", "...and opens the renewal page");
+        ok (layoutFaults (card).empty(), "it lays out clean: " + joined (layoutFaults (card)));
+        c.renewUrl = {};
+        LicenceNotice noRenew (c);
+        ok (! noRenew.buy.isVisible() && noRenew.enterKey.isVisible() && layoutFaults (noRenew).empty(), "no renewal address: no button");
+        i18n::setLanguage ("de");
+        LicenceNotice de (c);
+        ok (de.sentence.getText().startsWith ("Ihr Update-Jahr endete am 2027-11-20"), "in German");
+        i18n::setLanguage ("en");
+    }
+
+    group ("every screen lays out clean in all twelve languages: pieces inside, none overlapping, no words cut");
+    {
+        Checker chk ("v0.1.0");
+        for (const auto& lang : i18n::kLanguages)
+        {
+            const std::string code (lang.code);
+            i18n::setLanguage (juce::String (code));
+            VersionBadge badge (chk, paidConfig(), "VST3");
+            std::vector<std::string> faults;
+            auto collect = [&] (const std::string& where, juce::Component& c)
+            {
+                for (const auto& f : layoutFaults (c)) faults.push_back (where + ": " + f);
+            };
+            for (auto s : { lic::Standing { { lic::Status::State::trial, 23 }, std::nullopt },
+                            lic::Standing { { lic::Status::State::demo, 0 }, std::nullopt },
+                            lic::Standing { { lic::Status::State::licensed, 0 }, ivan() },
+                            lic::Standing { { lic::Status::State::updatesOver, 0 }, ivan() } })
+            {
+                product.now = s;
+                VersionBadge::Panel p (badge, paidConfig(), "VST3", nullptr);
+                collect ("block", *p.licenceBlock);
+                if (s.status.state == lic::Status::State::trial)
+                {
+                    p.showPage (VersionBadge::Page::enterKey);
+                    lic::Reading r; r.verdict = lic::Verdict::otherProduct; r.key = ivan(); r.key.product = "orbit-amp";
+                    p.enterKeyPage->showAnswer (r);
+                    p.showPage (VersionBadge::Page::enterKey);   // measured again with the answer
+                    p.enterKeyPage->showAnswer (r);
+                    collect ("key page", *p.enterKeyPage);
+                    p.showPage (VersionBadge::Page::freeLicence);
+                    p.freeLicencePage->failed.setVisible (true);
+                    p.freeLicencePage->resized();
+                    collect ("free page", *p.freeLicencePage);
+                    ok (p.freeLicencePage->getBottom() <= p.getHeight() && p.freeLicencePage->getHeight() >= p.freeLicencePage->heightFor (p.freeLicencePage->getWidth()),
+                        code + ": the free page fits the window");
+                }
+            }
+            LicenceNotice demo (cardConfig ("49"));
+            collect ("card", demo);
+            auto over = cardConfig ({});
+            over.updatesOver = true; over.updatesUntil = 21142; over.renewUrl = "https://example.invalid/renew";
+            LicenceNotice renewal (over);
+            collect ("renewal card", renewal);
+            ok (faults.empty(), code + ": " + (faults.empty() ? std::string ("clean") : joined (faults)));
+        }
+        i18n::setLanguage ("en");
     }
 
     group ("every licence screen speaks every language: no English left in German, nothing empty anywhere");
@@ -753,6 +1104,10 @@ int main()
             }
             LicenceNotice card (cardConfig ("49"));
             textsOf (card, out);
+            auto over = cardConfig ("49");
+            over.updatesOver = true; over.updatesUntil = 21142; over.renewUrl = "https://example.invalid/renew";
+            LicenceNotice renewal (over);
+            textsOf (renewal, out);
         };
         std::vector<juce::String> en;
         screens (en);
